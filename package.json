@@ -3,7 +3,7 @@
   "displayName": "Graphyfy",
   "description": "See how a TypeScript or JavaScript codebase fits together: an interactive graph of folders, files, classes and functions, connected by imports, calls, JSX renders and inheritance.",
   "version": "0.1.0",
-  "publisher": "travingu",
+  "publisher": "trav1snguyen",
   "author": "Travis Nguyen",
   "license": "MIT",
   "icon": "media/icon.png",
