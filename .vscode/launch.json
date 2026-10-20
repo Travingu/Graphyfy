@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Builds, then opens sample/ in an Extension Development Host with only Graphyfy loaded.
+      "name": "Run Graphyfy (sample project)",
+      "type": "extensionHost",
+      "request": "launch",
+      "preLaunchTask": "npm: build",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}", "--disable-extensions", "${workspaceFolder}/sample"],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"]
+    },
+    {
+      // The same, on whatever folder you pick: try it on a real project.
+      "name": "Run Graphyfy (choose a folder)",
+      "type": "extensionHost",
+      "request": "launch",
+      "preLaunchTask": "npm: build",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}", "--disable-extensions", "${input:folder}"],
+      "outFiles": ["${workspaceFolder}/out/**/*.js"]
+    }
+  ],
+  "inputs": [
+    {
+      "id": "folder",
+      "type": "promptString",
+      "description": "Folder to open in the Extension Development Host"
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "name": "graphyfy",
+  "displayName": "Graphyfy",
+  "description": "See how a TypeScript or JavaScript codebase fits together: an interactive graph of folders, files, classes and functions, connected by imports, calls, JSX renders and inheritance.",
+  "version": "0.1.0",
+  "publisher": "travingu",
+  "author": "Travis Nguyen",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0f1a2e",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Visualization",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "typescript",
+    "javascript",
+    "react",
+    "call graph",
+    "dependency graph",
+    "visualization",
+    "architecture"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "scripts": {
+    "build": "node scripts/build.js",
+    "watch": "node scripts/build.js --watch",
+    "typecheck": "tsc -p . && tsc -p webview",
+    "test": "node scripts/build.js && node --test test/builder.test.js test/smoke.test.js",
+    "vscode:prepublish": "node scripts/build.js --production",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "graphyfy.open",
+        "title": "Open Graph",
+        "category": "Graphyfy",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "graphyfy.reveal",
+        "title": "Show in Graph",
+        "category": "Graphyfy"
+      },
+      {
+        "command": "graphyfy.refresh",
+        "title": "Rescan Workspace",
+        "category": "Graphyfy"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "graphyfy.open",
+          "when": "resourceLangId =~ /^(typescript|typescriptreact|javascript|javascriptreact)$/",
+          "group": "navigation@90"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "graphyfy.reveal",
+          "when": "resourceLangId =~ /^(typescript|typescriptreact|javascript|javascriptreact)$/",
+          "group": "navigation@90"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Graphyfy",
+      "properties": {
+        "graphyfy.include": {
+          "type": "string",
+          "default": "**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}",
+          "description": "Glob pattern of the files to analyze. Declaration files (.d.ts) are always skipped."
+        },
+        "graphyfy.exclude": {
+          "type": "string",
+          "default": "{**/node_modules/**,**/dist/**,**/build/**,**/out/**,**/coverage/**,**/.next/**,**/.nuxt/**,**/.svelte-kit/**,**/.vercel/**,**/.git/**,**/*.min.js}",
+          "description": "Glob pattern of the files and folders to skip: build output, dependencies and minified code."
+        },
+        "graphyfy.maxFiles": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 1,
+          "description": "The most files to analyze. Larger workspaces show the first ones found."
+        },
+        "graphyfy.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Rebuild the graph when files are saved, created or deleted."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/cytoscape": "3.21.9",
+    "@types/node": "22.15.0",
+    "@types/vscode": "1.95.0",
+    "@vscode/vsce": "4.0.0",
+    "cytoscape": "3.34.4",
+    "elkjs": "0.11.0",
+    "esbuild": "0.28.2",
+    "tree-sitter-javascript": "0.25.0",
+    "tree-sitter-typescript": "0.23.2",
+    "typescript": "7.0.2",
+    "web-tree-sitter": "0.27.1"
+  }
+}

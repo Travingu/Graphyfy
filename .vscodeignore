@@ -1,0 +1,12 @@
+# The package ships out/ (bundles and parsers), media/, the manifest, README and LICENSE.
+.vscode/**
+node_modules/**
+src/**
+webview/**
+test/**
+scripts/**
+sample/**
+out/**/*.map
+tsconfig.json
+*.vsix
+.gitignore
