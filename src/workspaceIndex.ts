@@ -1,7 +1,8 @@
 // src/workspaceIndex.ts
 // Finds the workspace's TypeScript and JavaScript files (graphyfy.include,
-// exclude and maxFiles), parses them and keeps the latest graph. Files whose
-// text hasn't changed keep their parse between scans.
+// exclude and maxFiles), and the tsconfig and jsconfig files that define import
+// aliases, parses them and keeps the latest graph. Files whose text hasn't
+// changed keep their parse between scans.
 
 import * as vscode from 'vscode';
 import { buildGraph, type Source } from './graph/builder';
@@ -11,6 +12,8 @@ import type { GraphData } from './types';
 /** Files read at once while scanning. */
 const READ_BATCH = 64;
 const DEFAULT_INCLUDE = '**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}';
+/** Config files read for import aliases (aliases.ts). */
+export const CONFIG_GLOB = '**/{tsconfig,jsconfig}*.json';
 
 const decoder = new TextDecoder('utf-8');
 
@@ -44,6 +47,7 @@ export class WorkspaceIndex {
         if (truncated) {
             uris.length = maxFiles;
         }
+        uris.push(...(await vscode.workspace.findFiles(CONFIG_GLOB, exclude)));
 
         // Unsaved editor text wins over the file on disk.
         const openDocs = new Map(vscode.workspace.textDocuments.map((d) => [d.uri.toString(), d]));

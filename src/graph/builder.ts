@@ -10,6 +10,9 @@
 //
 // Edges: import, call, render, extends, implements.
 //
+// Import specifiers resolve relative to the file, or through tsconfig/jsconfig
+// `paths` and `baseUrl` (aliases.ts); anything else is a package.
+//
 // Names resolve the way the module system does: a name defined in the file,
 // else the import that binds it, followed through the other file's exports and
 // re-exports. Member calls use what's known about the receiver (`this`, a
@@ -20,6 +23,7 @@
 
 import * as path from 'path';
 import { hashString } from '../util/hash';
+import { CONFIG_FILE, readAliases, type Aliases } from './aliases';
 import { parseSource, SOURCE_FILE, type CallInfo, type ParsedFile, type TypeInfo } from '../parser';
 import type { EdgeKind, GraphData, GraphEdge, GraphNode, NodeKind, Site } from '../types';
 
@@ -58,7 +62,7 @@ const COMMON_METHODS = new Set(
 );
 
 export interface Source {
-    /** Workspace-relative, `/` separators. */
+    /** Workspace-relative, `/` separators. A tsconfig or jsconfig file supplies import aliases. */
     path: string;
     text: string;
 }
@@ -71,6 +75,7 @@ export function nodeId(kind: NodeKind, file: string, qname?: string): string {
 export function buildGraph(sources: Source[], cache?: Map<string, ParsedFile>, title = 'Workspace'): GraphData {
     const started = Date.now();
     const files: ParsedFile[] = [];
+    const aliases = readAliases(sources.filter((s) => CONFIG_FILE.test(s.path)));
     for (const src of sources) {
         if (!SOURCE_FILE.test(src.path)) {
             continue;
@@ -82,7 +87,7 @@ export function buildGraph(sources: Source[], cache?: Map<string, ParsedFile>, t
         }
         files.push(parsed);
     }
-    const graph = buildFromParsed(files, title);
+    const graph = buildFromParsed(files, title, aliases);
     graph.stats.ms = Date.now() - started;
     return graph;
 }
@@ -107,7 +112,7 @@ interface ClassRecord {
 /** What a name resolves to: a node, or a whole module (a namespace import). */
 type Resolved = { node: GraphNode } | { module: string };
 
-export function buildFromParsed(files: ParsedFile[], title = 'Workspace'): GraphData {
+export function buildFromParsed(files: ParsedFile[], title = 'Workspace', aliases?: Aliases): GraphData {
     const nodes = new Map<string, GraphNode>();
     const edges = new Map<string, GraphEdge>();
     const fileSet = new Set(files.map((f) => f.filePath));
@@ -244,11 +249,8 @@ export function buildFromParsed(files: ParsedFile[], title = 'Workspace'): Graph
     }
 
     // ---- imports ----------------------------------------------------------------------
-    const resolveModule = (from: string, spec: string): string | undefined => {
-        if (!spec.startsWith('.') && !spec.startsWith('/')) {
-            return undefined; // a package (tsconfig `paths` aliases aren't read yet)
-        }
-        const base = posix.normalize(spec.startsWith('/') ? spec.slice(1) : posix.join(posix.dirname(from), spec));
+    /** The workspace file a path names, trying extensions and index files. */
+    const resolveFile = (base: string): string | undefined => {
         const ext = posix.extname(base);
         const candidates = [
             base,
@@ -257,6 +259,19 @@ export function buildFromParsed(files: ParsedFile[], title = 'Workspace'): Graph
             ...EXTENSIONS.map((e) => `${base}/index${e}`),
         ];
         return candidates.find((c) => fileSet.has(c));
+    };
+    const resolveModule = (from: string, spec: string): string | undefined => {
+        if (spec.startsWith('.') || spec.startsWith('/')) {
+            return resolveFile(posix.normalize(spec.startsWith('/') ? spec.slice(1) : posix.join(posix.dirname(from), spec)));
+        }
+        // An alias, or a package when none of its candidates is a workspace file.
+        for (const base of aliases?.candidates(from, spec) ?? []) {
+            const file = resolveFile(base);
+            if (file) {
+                return file;
+            }
+        }
+        return undefined;
     };
     for (const f of files) {
         const scope = scopes.get(f.filePath)!;

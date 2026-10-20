@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0
+
+- Follows import aliases: `paths` and `baseUrl` in `tsconfig.json` and `jsconfig.json`, through `extends`. Imports like `@/lib/api` now draw arrows instead of being treated as packages.
+- Labels on the graph are sharper on displays at 100%, 125% and 150% scaling.
+
 ## 0.1.0
 
 First release.

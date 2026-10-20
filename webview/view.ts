@@ -45,6 +45,10 @@ export class GraphView {
             style: this.style(),
             minZoom: 0.1,
             maxZoom: 2.5,
+            // Cytoscape draws labels from bitmaps cached at power-of-two scales and
+            // resamples them, which blurs text at 1x and fractional (125%, 150%)
+            // display scaling. Rendering at 2x or more keeps labels sharp.
+            pixelRatio: Math.max(2, window.devicePixelRatio || 1),
             boxSelectionEnabled: false,
             // Selection is the view's own `selected` class, so Cytoscape's is off.
             autounselectify: true,

@@ -165,3 +165,41 @@ test('a nullable type annotation still types the receiver', async () => {
     });
     assert.deepEqual(edgeList(g, 'call'), ['call m.ts:go -> m.ts:View.fit']);
 });
+
+test('tsconfig paths and baseUrl, with comments, extends and a Vite-style tsconfig.app.json', async () => {
+    const g = await graphOf({
+        'tsconfig.json': '{ "files": [], "references": [{ "path": "./tsconfig.app.json" }] }',
+        'tsconfig.app.json': `{
+    // Vite puts the aliases here, not in tsconfig.json
+    "extends": "./tsconfig.base",
+    "compilerOptions": { "paths": { "@/*": ["./src/*"], "@config": ["./src/config.ts"], }, },
+}`,
+        'tsconfig.base.json': '{ "compilerOptions": { "baseUrl": "src" } }',
+        'src/main.ts': `import { a } from '@/lib/a';\nimport cfg from '@config';\nimport { b } from 'lib/b';\nimport React from 'react';`,
+        'src/lib/a.ts': 'export const a = 1;',
+        'src/lib/b.ts': 'export const b = 1;',
+        'src/config.ts': 'export default {};',
+    });
+    assert.deepEqual(edgeList(g, 'import'), [
+        'import src/main.ts -> src/config.ts',
+        'import src/main.ts -> src/lib/a.ts',
+        'import src/main.ts -> src/lib/b.ts',
+    ]);
+});
+
+test('each package uses its own config, and the longest alias prefix wins', async () => {
+    const g = await graphOf({
+        'tsconfig.base.json': '{ "compilerOptions": { "paths": { "@acme/*": ["packages/*/src"], "@acme/ui/*": ["packages/ui/src/parts/*"] } } }',
+        'packages/web/tsconfig.json': '{ "extends": "../../tsconfig.base.json", "compilerOptions": { "baseUrl": "." } }',
+        'packages/web/src/app.tsx': `import { Button } from '@acme/ui';\nimport { Icon } from '@acme/ui/icon';\nexport function App() { return <Button />; }`,
+        'packages/ui/src/index.ts': `export { Button } from './Button';`,
+        'packages/ui/src/Button.tsx': 'export function Button() { return <button />; }',
+        'packages/ui/src/parts/icon.ts': 'export const Icon = 1;',
+    });
+    assert.deepEqual(edgeList(g, 'import'), [
+        'import packages/ui/src/index.ts -> packages/ui/src/Button.tsx',
+        'import packages/web/src/app.tsx -> packages/ui/src/index.ts',
+        'import packages/web/src/app.tsx -> packages/ui/src/parts/icon.ts',
+    ]);
+    assert.deepEqual(edgeList(g, 'render'), ['render packages/web/src/app.tsx:App -> packages/ui/src/Button.tsx:Button']);
+});

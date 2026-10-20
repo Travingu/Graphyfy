@@ -49,7 +49,7 @@ function stubVscode() {
             workspaceFolders: [{ name: 'sample', uri: uri(sample) }],
             textDocuments: [],
             getConfiguration: () => ({ get: () => undefined }),
-            findFiles: async () => listFiles(sample).filter((f) => /\.(ts|tsx|js|jsx)$/.test(f)).map(uri),
+            findFiles: async (glob) => listFiles(sample).filter((f) => (glob.includes('tsconfig') ? /[tj]sconfig[\w.-]*\.json$/ : /\.(ts|tsx|js|jsx)$/).test(f)).map(uri),
             fs: { readFile: async (u) => fs.readFileSync(u.fsPath) },
             asRelativePath: (u) => path.relative(sample, u.fsPath),
             createFileSystemWatcher: () => ({ onDidCreate() {}, onDidDelete() {}, dispose() {} }),

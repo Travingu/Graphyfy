@@ -21,6 +21,7 @@ Arrows point from the code doing something to the code it does it to. An arrow t
 ## What it understands
 
 - **Imports:** ES modules (named, default, namespace, re-exports and `export *` barrels), `require()`, dynamic `import()`, `index` files, and TypeScript's `.js` specifiers for `.ts` files.
+- **Aliases:** `paths` and `baseUrl` from `tsconfig.json` and `jsconfig.json` (`@/components/Button`), through `extends`, including the `tsconfig.app.json` that Vite projects keep them in. In a monorepo, each package uses the config nearest to it.
 - **Calls:** to imported and local functions, `this.method()`, `super.method()`, `new Class()`, methods on parameters and variables with a declared or constructed type, and on fields, including constructor parameter properties.
 - **JSX:** `<Component />` is a render arrow, including components exported through `memo()` and similar wrappers.
 - **Classes:** `extends` and `implements`, and methods inherited from a base class.
@@ -28,7 +29,7 @@ Arrows point from the code doing something to the code it does it to. An arrow t
 
 A call on a receiver whose type isn't known goes to the one method with that name among the files the caller imports, drawn dotted and labeled a guess. When there's more than one candidate, or the name is too common to guess from (`map`, `get`, `remove`), no arrow is drawn.
 
-There's no type checker involved. Graphyfy parses with [tree-sitter](https://tree-sitter.github.io/), so it needs no `tsconfig.json`, no build and no installed dependencies, and a file with a syntax error still contributes everything around the error. The cost is that some calls can't be followed: through callbacks and higher-order functions, through values whose type is only inferred, and through `tsconfig` path aliases (not read yet). Treat the graph as a map, not a compiler's call graph.
+There's no type checker involved. Graphyfy parses with [tree-sitter](https://tree-sitter.github.io/), so it needs no `tsconfig.json`, no build and no installed dependencies, and a file with a syntax error still contributes everything around the error. The cost is that some calls can't be followed: through callbacks and higher-order functions, through values whose type is only inferred, and through aliases defined only in a bundler's config (Vite's `resolve.alias`, webpack's `resolve.alias`). Treat the graph as a map, not a compiler's call graph.
 
 ## Settings
 
@@ -54,6 +55,7 @@ Press **F5** to open `sample/` (a small React app and Node server) in an Extensi
 | --- | --- |
 | `src/parser/` | tree-sitter loading, and the one-pass extractor for TypeScript, TSX and JavaScript |
 | `src/graph/builder.ts` | Resolves imports, exports and calls across files into the graph |
+| `src/graph/aliases.ts` | Reads import aliases from tsconfig and jsconfig files |
 | `src/workspaceIndex.ts` | Finds and reads the workspace's files, and caches parses |
 | `src/panel.ts`, `src/extension.ts` | The webview panel, commands and auto-refresh |
 | `webview/model.ts` | What's open, what's visible, and arrow bundling |
