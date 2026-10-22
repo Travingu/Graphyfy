@@ -1,4 +1,4 @@
-// Prints the graph Graphyfy builds for a folder, for checking the parser and
+// Prints the graph Overseer builds for a folder, for checking the parser and
 // the name resolution by eye.
 //   node test/dump.js <folder>          nodes and edges
 //   node test/dump.js <folder> --json   the GraphData the webview gets

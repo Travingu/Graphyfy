@@ -14,6 +14,7 @@
     --radius: 4px;
     --toolbar-height: 40px;
     --details-width: 320px;
+    --timeline-height: 168px;
 
     --text-xs: 11px;
     --text-sm: 13px;
@@ -33,6 +34,13 @@
     --active-fg: var(--vscode-list-activeSelectionForeground);
     --shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.24));
     --duration: 150ms;
+
+    /* Git change markers: what a past commit added, modified and deleted, and
+       anything not yet committed (the working tree), which is all one color. */
+    --added: var(--vscode-charts-green, #89d185);
+    --modified: var(--vscode-charts-blue, #3794ff);
+    --removed: var(--vscode-charts-red, #f14c4c);
+    --uncommitted: var(--vscode-charts-yellow, #cca700);
 }
 
 * {
@@ -55,10 +63,30 @@ body {
     overflow: hidden;
 }
 
+/* Named areas, so the banner and history strip can be hidden without the rows shifting. */
 #app {
     display: grid;
-    grid-template-rows: var(--toolbar-height) 1fr;
+    grid-template-rows: var(--toolbar-height) auto minmax(0, 1fr) 0;
+    grid-template-areas: 'toolbar' 'banner' 'main' 'timeline';
     height: 100vh;
+}
+
+#app.with-timeline {
+    grid-template-rows: var(--toolbar-height) auto minmax(0, 1fr) var(--timeline-height);
+}
+
+.toolbar { grid-area: toolbar; }
+.banner { grid-area: banner; }
+.main { grid-area: main; }
+.timeline { grid-area: timeline; }
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
 }
 
 h2,
@@ -652,10 +680,480 @@ code {
     font-weight: 600;
 }
 
+/* ---- change markers ---------------------------------------------------------- */
+
+.change-tag {
+    flex: none;
+    min-width: 16px;
+    font-size: var(--text-xs);
+    line-height: var(--leading-xs);
+    font-weight: 600;
+    text-align: center;
+}
+
+.change-tag[data-change='added'] { color: var(--added); }
+.change-tag[data-change='modified'] { color: var(--modified); }
+.change-tag[data-change='removed'] { color: var(--removed); }
+
+.change-note {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--muted);
+    font-size: var(--text-xs);
+    line-height: var(--leading-xs);
+}
+
+.swatch {
+    flex: none;
+    width: 12px;
+    height: 8px;
+    border: 2px solid;
+    border-radius: 2px;
+}
+
+.swatch[data-change='added'] { border-color: var(--added); }
+.swatch[data-change='modified'] { border-color: var(--modified); }
+.swatch[data-change='removed'] { border-color: var(--removed); border-style: dashed; }
+
+/* In the working tree every change is uncommitted: one color, deletions still dashed. */
+[data-view='worktree'] .change-tag[data-change] { color: var(--uncommitted); }
+[data-view='worktree'] .swatch[data-change] { border-color: var(--uncommitted); }
+[data-view='worktree'] .legend-list[data-for='commit'],
+[data-view='commit'] .legend-list[data-for='worktree'] {
+    display: none;
+}
+
+.legend-check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--fg);
+    cursor: pointer;
+}
+
+.legend-check input {
+    margin: 0;
+}
+
+#legend-changes {
+    display: grid;
+    gap: var(--space-2);
+}
+
+#legend-changes[hidden] {
+    display: none;
+}
+
+/* ---- banner: viewing a commit ------------------------------------------------- */
+
+.banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+    padding: var(--space-1) var(--space-3);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.banner[hidden] {
+    display: none;
+}
+
+.banner-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.banner-subject {
+    color: var(--muted);
+}
+
+.banner-actions {
+    display: flex;
+    flex: none;
+    gap: var(--space-1);
+}
+
+/* ---- history strip -------------------------------------------------------------- */
+
+.timeline {
+    position: relative;
+    display: grid;
+    grid-template-rows: 28px minmax(0, 1fr);
+    min-height: 0;
+    border-top: 1px solid var(--border);
+    background: var(--vscode-panel-background, var(--bg));
+}
+
+.timeline[hidden] {
+    display: none;
+}
+
+/* The top edge: drag to resize. */
+.timeline-resize {
+    position: absolute;
+    z-index: 2;
+    top: -4px;
+    left: 0;
+    right: 0;
+    height: 8px;
+    cursor: row-resize;
+}
+
+.timeline-resize:hover,
+.timeline-resize:focus-visible {
+    outline: none;
+    background: linear-gradient(to bottom, transparent 3px, var(--focus) 3px, var(--focus) 5px, transparent 5px);
+}
+
+.timeline-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+    padding: 0 var(--space-3);
+}
+
+.timeline-title {
+    font-size: var(--text-xs);
+    line-height: var(--leading-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.timeline-meta,
+.timeline-hint {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    line-height: var(--leading-xs);
+    white-space: nowrap;
+}
+
+.timeline-hint {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-align: right;
+    text-overflow: ellipsis;
+}
+
+.timeline-body {
+    position: relative;
+    min-height: 0;
+}
+
+.timeline-scroll {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    outline: none;
+}
+
+.timeline-svg {
+    display: block;
+}
+
+.timeline-message {
+    padding: var(--space-3);
+    color: var(--muted);
+}
+
+.timeline-skeleton {
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-6);
+}
+
+.timeline-skeleton-row {
+    width: calc(var(--n) * 96px);
+    height: 8px;
+    margin-left: calc(var(--i) * 48px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    animation: pulse 1.6s ease-in-out infinite;
+}
+
+/* Lane colors: VS Code's chart palette, so they follow the theme. */
+.lane-0 { --lane: var(--vscode-charts-blue, #3794ff); }
+.lane-1 { --lane: var(--vscode-charts-green, #89d185); }
+.lane-2 { --lane: var(--vscode-charts-orange, #d18616); }
+.lane-3 { --lane: var(--vscode-charts-purple, #b180d7); }
+.lane-4 { --lane: var(--vscode-charts-yellow, #cca700); }
+.lane-5 { --lane: var(--vscode-charts-red, #f14c4c); }
+
+.timeline-line {
+    fill: none;
+    stroke: var(--lane);
+    stroke-width: 2;
+}
+
+.timeline-cut {
+    stroke-dasharray: 2 3;
+    opacity: 0.6;
+}
+
+.timeline-worktree-line {
+    stroke: var(--muted);
+    stroke-dasharray: 2 3;
+}
+
+.timeline-date {
+    fill: var(--muted);
+    font-size: var(--text-xs);
+}
+
+.timeline-tick {
+    stroke: var(--border);
+    stroke-width: 1;
+    opacity: 0.5;
+}
+
+.timeline-commit {
+    cursor: pointer;
+    outline: none;
+}
+
+.timeline-hit {
+    fill: transparent;
+}
+
+.timeline-dot {
+    fill: var(--lane);
+    stroke: var(--vscode-panel-background, var(--bg));
+    stroke-width: 2;
+}
+
+.timeline-ring {
+    fill: none;
+    stroke: var(--focus);
+    stroke-width: 2;
+    opacity: 0;
+    transition: opacity var(--duration) ease;
+}
+
+.timeline-commit:hover .timeline-ring,
+.timeline-commit:focus-visible .timeline-ring {
+    opacity: 0.5;
+}
+
+.timeline-commit.selected .timeline-ring {
+    opacity: 1;
+}
+
+.timeline-commit.pending .timeline-ring {
+    stroke-dasharray: 4 3;
+    animation: pulse 1.2s ease-in-out infinite;
+}
+
+.timeline-worktree .timeline-dot {
+    fill: var(--vscode-panel-background, var(--bg));
+    stroke: var(--muted);
+}
+
+.timeline-worktree.dirty .timeline-dot {
+    stroke: var(--uncommitted);
+}
+
+.timeline-worktree-label {
+    fill: var(--muted);
+    font-size: var(--text-xs);
+    text-anchor: middle;
+    dominant-baseline: central;
+}
+
+.timeline-branch {
+    cursor: pointer;
+    outline: none;
+}
+
+.timeline-branch rect {
+    fill: var(--vscode-panel-background, var(--bg));
+    stroke: var(--lane);
+    stroke-width: 1;
+    transition: fill var(--duration) ease;
+}
+
+.timeline-branch:hover rect {
+    fill: var(--hover);
+}
+
+.timeline-branch text {
+    fill: var(--fg);
+    font-size: var(--text-xs);
+    dominant-baseline: central;
+}
+
+.timeline-branch.current text {
+    font-weight: 600;
+}
+
+.timeline-branch.current rect {
+    stroke-width: 2;
+}
+
+.timeline-tooltip {
+    position: absolute;
+    z-index: 3;
+    max-width: 360px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--vscode-editorHoverWidget-border, var(--border));
+    border-radius: var(--radius);
+    background: var(--vscode-editorHoverWidget-background, var(--surface));
+    color: var(--vscode-editorHoverWidget-foreground, var(--fg));
+    box-shadow: var(--shadow);
+    pointer-events: none;
+}
+
+.timeline-tooltip[hidden] {
+    display: none;
+}
+
+.timeline-tooltip-title {
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.timeline-tooltip-meta {
+    color: var(--muted);
+    font-size: var(--text-xs);
+    line-height: var(--leading-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .timeline-skeleton-row,
+    .timeline-commit.pending .timeline-ring {
+        animation: none;
+    }
+}
+
+/* ---- AI agents ---------------------------------------------------------------- */
+
+/* What an agent is doing right now, in the toolbar. */
+.agent-live {
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+    height: 24px;
+    padding: 0 var(--space-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    color: var(--muted);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.agent-live[hidden] {
+    display: none;
+}
+
+.agent-live b {
+    color: var(--fg);
+    font-weight: 600;
+}
+
+.agent-dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+}
+
+/* Each agent's color, as on the graph (theme.ts): Claude's terracotta, Cursor in the text color. */
+[data-agent='claude'] { --agent: #d97757; --agent-text: #141413; }
+[data-agent='cursor'] { --agent: var(--fg); --agent-text: var(--bg); }
+
+/* In the feed: filled for an edit, a ring for a read. */
+.agent-dot[data-agent] { background: var(--agent); }
+.agent-dot[data-action='read'] { background: transparent; box-shadow: inset 0 0 0 1.5px var(--agent); }
+
+/* Agent name tags over the graph, on glowing nodes' top-right corners (view.ts). */
+.agent-tags {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.agent-tag {
+    position: absolute;
+    transform: translate(-100%, -50%) translateX(4px);
+    padding: 0 var(--space-1);
+    border-radius: var(--radius);
+    background: var(--agent);
+    color: var(--agent-text);
+    font-size: var(--text-xs);
+    line-height: var(--leading-xs);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.agent-tag[hidden] {
+    display: none;
+}
+
+/* The agent's name in the toolbar, as on the graph's tags. */
+.agent-badge {
+    flex: none;
+    padding: 0 var(--space-1);
+    border-radius: var(--radius);
+    background: var(--agent);
+    color: var(--agent-text);
+    font-size: var(--text-xs);
+    line-height: var(--leading-xs);
+    font-weight: 600;
+}
+
+.agent-list {
+    display: grid;
+    gap: var(--space-1);
+    margin-bottom: var(--space-2);
+}
+
+.agent-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 28px;
+}
+
+.agent-state {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border: 1px solid var(--muted);
+    border-radius: 50%;
+}
+
+.agent-state[data-on='true'] {
+    border-color: var(--agent);
+    background: var(--agent);
+}
+
+#agents .legend-check {
+    margin-bottom: var(--space-2);
+    font-size: var(--text-xs);
+    line-height: var(--leading-xs);
+}
+
 /* ---- narrow panels --------------------------------------------------------- */
 
 @media (max-width: 760px) {
-    .summary {
+    .summary,
+    .agent-live,
+    .timeline-hint,
+    .banner-subject {
         display: none;
     }
 
@@ -676,7 +1174,7 @@ code {
 }
 
 @media (max-width: 520px) {
-    .toolbar-actions .button:not(#refresh):not(#toggle-details) {
+    .toolbar-actions .button:not(#refresh):not(#toggle-details):not(#toggle-history) {
         display: none;
     }
 }

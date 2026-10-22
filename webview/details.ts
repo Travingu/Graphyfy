@@ -1,10 +1,12 @@
 // webview/details.ts
 // The side panel: what the selected node is and everything it connects to,
 // with exact relationships (not the bundled arrows on the canvas). Every row
-// is a button that selects that node.
+// is a button that selects that node. When the graph shows a commit, the
+// overview says which one and lists what it changed.
 
-import type { EdgeKind, GraphEdge, GraphNode, NodeKind } from '../src/types';
+import type { Change, EdgeKind, GraphEdge, GraphNode, NodeKind, ViewInfo } from '../src/types';
 import type { Model } from './model';
+import { absoluteDate } from './timeline';
 import { esc } from './util';
 
 /** Rows shown per section before "and N more". */
@@ -21,6 +23,13 @@ const KIND_LABEL: Record<NodeKind, string> = {
     method: 'Method',
 };
 
+/** As VS Code's Source Control view marks files. */
+const CHANGE_LABEL: Record<Change, { letter: string; word: string }> = {
+    added: { letter: 'A', word: 'Added' },
+    modified: { letter: 'M', word: 'Modified' },
+    removed: { letter: 'D', word: 'Deleted' },
+};
+
 interface Section {
     title: string;
     rows: Array<{ id: string; uncertain?: boolean; n?: number }>;
@@ -30,18 +39,44 @@ export interface DetailsActions {
     select(id: string): void;
     openSource(id: string): void;
     toggleBox(id: string): void;
+    diff(id: string): void;
 }
 
-export function renderDetails(el: HTMLElement, model: Model, id: string | undefined, actions: DetailsActions): void {
+export function renderDetails(el: HTMLElement, model: Model, id: string | undefined, actions: DetailsActions, view: ViewInfo): void {
     const node = id ? model.nodes.get(id) : undefined;
-    el.innerHTML = node ? nodeHtml(model, node) : overviewHtml(model);
+    el.innerHTML = node ? nodeHtml(model, node, view) : overviewHtml(model, view);
     el.scrollTop = 0;
     el.querySelectorAll<HTMLButtonElement>('[data-select]').forEach((b) => b.addEventListener('click', () => actions.select(b.dataset.select!)));
     el.querySelector<HTMLButtonElement>('[data-source]')?.addEventListener('click', () => actions.openSource(node!.id));
     el.querySelector<HTMLButtonElement>('[data-toggle]')?.addEventListener('click', () => actions.toggleBox(node!.id));
+    el.querySelector<HTMLButtonElement>('[data-diff]')?.addEventListener('click', () => actions.diff(node!.id));
 }
 
-function overviewHtml(model: Model): string {
+function changeTag(change: Change | undefined): string {
+    return change ? `<span class="change-tag" data-change="${change}" title="${CHANGE_LABEL[change].word}">${CHANGE_LABEL[change].letter}</span>` : '';
+}
+
+/** The changed files and symbols, a section per kind of change. */
+function changesHtml(model: Model, view: ViewInfo): string {
+    const changes = model.data.stats.changes;
+    if (!changes || !(changes.added + changes.modified + changes.removed)) {
+        return view.kind === 'commit' ? '<p class="hint">This commit changed no TypeScript or JavaScript code.</p>' : '';
+    }
+    const byChange: Record<Change, string[]> = { added: [], modified: [], removed: [] };
+    for (const n of model.data.nodes) {
+        if (n.change) {
+            byChange[n.change].push(n.id);
+        }
+    }
+    const sections = (Object.keys(byChange) as Change[]).map((c) => sectionHtml(model, { title: CHANGE_LABEL[c].word, rows: byChange[c].map((id) => ({ id })) }));
+    return `<section class="section">
+        <h3 class="section-title">${view.kind === 'commit' ? 'Changed in this commit' : 'Uncommitted changes'}</h3>
+        <p class="hint">${view.kind === 'commit' ? 'Compared with the commit before it.' : 'Saved files compared with the last commit.'}</p>
+      </section>
+      ${sections.join('')}`;
+}
+
+function overviewHtml(model: Model, view: ViewInfo): string {
     const s = model.data.stats;
     const errors = s.parseErrors.length
         ? `<section class="section">
@@ -50,17 +85,27 @@ function overviewHtml(model: Model): string {
              <ul class="rows">${s.parseErrors.map((f) => `<li class="row static"><span class="row-name">${esc(f)}</span></li>`).join('')}</ul>
            </section>`
         : '';
+    const head =
+        view.kind === 'commit'
+            ? `<header class="details-head">
+                 <p class="eyebrow">Commit <code>${view.sha.slice(0, 7)}</code>${view.branch ? ` · ${esc(view.branch)}` : ''} · read-only</p>
+                 <h2 class="title">${esc(view.subject || '(no message)')}</h2>
+                 <p class="location">${esc(view.author)}${view.time ? ` · ${esc(absoluteDate(view.time))}` : ''}</p>
+               </header>`
+            : `<header class="details-head">
+                 <p class="eyebrow">Workspace</p>
+                 <h2 class="title">${esc(model.data.title)}</h2>
+               </header>`;
     return `
-      <header class="details-head">
-        <p class="eyebrow">Workspace</p>
-        <h2 class="title">${esc(model.data.title)}</h2>
-      </header>
+      ${head}
       <dl class="stats">
         <div><dt>Files</dt><dd>${s.files}</dd></div>
         <div><dt>Functions</dt><dd>${s.functions}</dd></div>
         <div><dt>Classes</dt><dd>${s.classes}</dd></div>
         <div><dt>Relationships</dt><dd>${s.edges}</dd></div>
       </dl>
+      ${changesHtml(model, view)}
+      <section id="agents" class="section"></section>
       <section class="section">
         <h3 class="section-title">Getting around</h3>
         <ul class="tips">
@@ -74,20 +119,31 @@ function overviewHtml(model: Model): string {
       ${errors}`;
 }
 
-function nodeHtml(model: Model, n: GraphNode): string {
+function nodeHtml(model: Model, n: GraphNode, view: ViewInfo): string {
     const location = n.kind === 'dir' ? esc(n.file) : `${esc(n.file)}${n.line && n.kind !== 'file' ? `:${n.line}` : ''}`;
     const flags = [n.exported && 'exported', n.isAsync && 'async', n.isStatic && 'static'].filter(Boolean) as string[];
     const box = model.isBox(n.id);
     const actions = [
         n.kind !== 'dir' ? `<button class="button primary" data-source>Go to code</button>` : '',
         box && n.kind !== 'dir' ? `<button class="button" data-toggle>${model.isOpenBox(n.id) ? 'Close' : 'Open'} in graph</button>` : '',
+        n.change && n.change !== 'added' && n.kind !== 'dir'
+            ? `<button class="button" data-diff>Compare with ${view.kind === 'commit' ? 'parent' : 'HEAD'}</button>`
+            : '',
     ].join('');
+    const change = n.change
+        ? `<p class="change-note">${changeTag(n.change)}${
+              n.change === 'removed'
+                  ? view.kind === 'commit' ? 'Deleted by this commit. Shown as it was before.' : 'Deleted since the last commit, not yet committed. Shown as it was there.'
+                  : `${CHANGE_LABEL[n.change].word} ${view.kind === 'commit' ? 'in this commit' : 'since the last commit, not yet committed'}`
+          }</p>`
+        : '';
     return `
       <header class="details-head">
         <p class="eyebrow"><span class="dot" data-kind="${n.kind}"></span>${KIND_LABEL[n.kind]}${flags.length ? ` · ${flags.join(' · ')}` : ''}</p>
         <h2 class="title">${esc(n.qname ?? n.label)}</h2>
         <p class="location">${location}</p>
       </header>
+      ${change}
       ${n.signature && n.kind !== 'file' ? `<pre class="signature">${esc(n.signature)}</pre>` : ''}
       ${actions ? `<div class="actions">${actions}</div>` : ''}
       ${sectionsFor(model, n).map((s) => sectionHtml(model, s)).join('') || '<p class="hint">Nothing in the graph connects to this.</p>'}`;
@@ -159,6 +215,7 @@ function sectionHtml(model: Model, s: Section): string {
             <span class="dot" data-kind="${n.kind}"></span>
             <span class="row-name">${esc(n.qname ?? n.label)}</span>
             <span class="row-meta">${tags} ${esc(where)}</span>
+            ${changeTag(n.change)}
           </button></li>`;
     });
     const more = s.rows.length > SECTION_MAX ? `<p class="hint">and ${s.rows.length - SECTION_MAX} more</p>` : '';

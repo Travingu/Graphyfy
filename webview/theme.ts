@@ -4,7 +4,7 @@
 // can't read CSS variables itself, and it doesn't understand #rrggbbaa, so
 // every color is resolved to an opaque hex here.
 
-import type { EdgeKind, NodeKind } from '../src/types';
+import type { AgentName, Change, EdgeKind, NodeKind } from '../src/types';
 
 export interface Theme {
     background: string;
@@ -18,6 +18,10 @@ export interface Theme {
     font: string;
     kind: Record<NodeKind, string>;
     edge: Record<EdgeKind, string>;
+    /** Git change markers in a past commit, and every change in the working tree (uncommitted). */
+    change: Record<Change | 'uncommitted', string>;
+    /** Each AI agent's color: its glow on the graph (its name tag is style.css's). */
+    agent: Record<AgentName, string>;
 }
 
 function cssVar(names: string[], fallback: string): string {
@@ -62,6 +66,9 @@ export function mix(color: string, under: string, opacity = 1): string {
     return `#${ch(0)}${ch(1)}${ch(2)}`;
 }
 
+/** Claude's terracotta (style.css has it too, for the name tags). */
+export const CLAUDE = '#d97757';
+
 export function readTheme(): Theme {
     const background = mix(cssVar(['--vscode-editor-background'], '#1e1e1e'), '#000000');
     const opaque = (names: string[], fallback: string, opacity = 1) => mix(cssVar(names, fallback), background, opacity);
@@ -93,6 +100,17 @@ export function readTheme(): Theme {
             import: opaque(['--vscode-charts-green'], '#89d185'),
             extends: opaque(['--vscode-charts-orange'], '#d18616'),
             implements: opaque(['--vscode-charts-orange'], '#d18616'),
+        },
+        change: {
+            added: opaque(['--vscode-charts-green'], '#89d185'),
+            modified: opaque(['--vscode-charts-blue'], '#3794ff'),
+            removed: opaque(['--vscode-charts-red'], '#f14c4c'),
+            uncommitted: opaque(['--vscode-charts-yellow'], '#cca700'),
+        },
+        agent: {
+            claude: CLAUDE,
+            // Cursor's brand is black and white: the theme's text color.
+            cursor: foreground,
         },
     };
 }

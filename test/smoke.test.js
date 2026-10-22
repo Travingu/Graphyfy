@@ -23,11 +23,16 @@ function stubVscode() {
     const posted = [];
     let receive;
     const vscode = {
-        Uri: { joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)) },
+        Uri: {
+            joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)),
+            file: (p) => uri(p),
+            from: (parts) => ({ ...parts, toString: () => `${parts.scheme}:${parts.path}?${parts.query}` }),
+        },
+        RelativePattern: class {},
         ViewColumn: { One: 1, Beside: -2 },
         Position: class {},
         Range: class {},
-        commands: { registerCommand: (id, fn) => (commands.set(id, fn), { dispose() {} }) },
+        commands: { registerCommand: (id, fn) => (commands.set(id, fn), { dispose() {} }), executeCommand: async () => {} },
         window: {
             createWebviewPanel: () => ({
                 webview: {
@@ -52,8 +57,10 @@ function stubVscode() {
             findFiles: async (glob) => listFiles(sample).filter((f) => (glob.includes('tsconfig') ? /[tj]sconfig[\w.-]*\.json$/ : /\.(ts|tsx|js|jsx)$/).test(f)).map(uri),
             fs: { readFile: async (u) => fs.readFileSync(u.fsPath) },
             asRelativePath: (u) => path.relative(sample, u.fsPath),
-            createFileSystemWatcher: () => ({ onDidCreate() {}, onDidDelete() {}, dispose() {} }),
+            createFileSystemWatcher: () => ({ onDidCreate() {}, onDidChange() {}, onDidDelete() {}, dispose() {} }),
             onDidSaveTextDocument: () => ({ dispose() {} }),
+            onDidChangeWorkspaceFolders: () => ({ dispose() {} }),
+            registerTextDocumentContentProvider: () => ({ dispose() {} }),
         },
     };
     return { vscode, commands, posted, receive: (m) => receive(m) };
@@ -70,9 +77,9 @@ test('the bundled extension scans the sample and posts its graph', async () => {
         const extension = require(path.join(root, 'out', 'extension.js'));
         const context = { subscriptions: [], extensionUri: { fsPath: root }, asAbsolutePath: (p) => path.join(root, p) };
         extension.activate(context);
-        assert.deepEqual([...stub.commands.keys()].sort(), ['graphyfy.open', 'graphyfy.refresh', 'graphyfy.reveal']);
+        assert.deepEqual([...stub.commands.keys()].sort(), ['overseer.connectAgent', 'overseer.disconnectAgent', 'overseer.history', 'overseer.open', 'overseer.refresh', 'overseer.reveal']);
 
-        stub.commands.get('graphyfy.open')();
+        stub.commands.get('overseer.open')();
         await stub.receive({ type: 'ready' });
 
         const errors = stub.posted.filter((m) => m.type === 'error' || m.type === 'vscode-error');
@@ -82,6 +89,19 @@ test('the bundled extension scans the sample and posts its graph', async () => {
         assert.equal(graph.stats.files, 14);
         assert.ok(graph.edges.some((e) => e.kind === 'render' && e.source === 'function:src/App.tsx:App' && e.target === 'function:src/components/TaskList.tsx:TaskList'));
         assert.ok(graph.edges.some((e) => e.kind === 'extends' && e.source === 'class:src/store/TaskStore.ts:TaskStore'));
+
+        // sample/ sits inside this repository: its history, and the graph at the first commit that has it.
+        await stub.receive({ type: 'loadHistory' });
+        const history = stub.posted.find((m) => m.type === 'history' || m.type === 'historyError');
+        assert.equal(history?.type, 'history', history?.message);
+        const oldest = history.data.commits.at(-1);
+        await stub.receive({ type: 'viewCommit', sha: oldest.sha, seq: 1 });
+        const atCommit = stub.posted.find((m) => m.type === 'graph' && m.seq === 1);
+        assert.equal(atCommit?.view.kind, 'commit');
+        assert.equal(atCommit.view.sha, oldest.sha);
+        assert.ok(atCommit.data.stats.files > 0);
+        // The first commit has no parent, so everything in it is new.
+        assert.ok(atCommit.data.nodes.filter((n) => n.kind !== 'dir').every((n) => n.change === 'added'));
     } finally {
         Module._resolveFilename = resolve;
         delete require.cache.vscode;
