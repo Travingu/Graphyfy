@@ -25,7 +25,11 @@ export class WorkspaceIndex {
     private readonly uriByPath = new Map<string, vscode.Uri>();
     private scanning: Promise<GraphData> | undefined;
 
-    constructor(private readonly wasmDir: string) {}
+    /** `onScan` gets every new graph (the agents' lookup table). */
+    constructor(
+        private readonly wasmDir: string,
+        private readonly onScan?: (graph: GraphData) => void,
+    ) {}
 
     /** Rescan the workspace. Concurrent calls share one scan. */
     scan(): Promise<GraphData> {
@@ -91,6 +95,11 @@ export class WorkspaceIndex {
         graph.stats.truncated = truncated || undefined;
         graph.stats.maxFiles = maxFiles;
         this.graph = graph;
+        try {
+            this.onScan?.(graph);
+        } catch {
+            // a listener failing (a read-only folder) doesn't fail the scan
+        }
         return graph;
     }
 

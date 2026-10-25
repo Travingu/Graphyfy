@@ -20,6 +20,16 @@ const AGENT_GLOW_MS = 4000;
 const TAG_LABEL: Record<AgentName, string> = { claude: 'Claude', cursor: 'Cursor' };
 /** Above this many visible nodes, layout changes apply without animation. */
 const ANIMATE_MAX_NODES = 600;
+/**
+ * Zoomed out past where labels can be read, nodes draw as dots in their
+ * kind's color, and open back into labels when zoomed in. The gap between
+ * the two keeps a slow pinch from flickering between them.
+ */
+const COMPACT_BELOW = 0.55;
+const EXPAND_ABOVE = 0.65;
+/** Dot diameters, in graph units: a symbol, and a closed file or folder (it holds more). */
+const COMPACT_DOT = 16;
+const COMPACT_BOX_DOT = 24;
 
 export interface ViewEvents {
     select(id: string | undefined): void;
@@ -43,6 +53,10 @@ export class GraphView {
     /** Agent name tags over glowing nodes: HTML, so they stay readable at any zoom. */
     private readonly tagLayer: HTMLElement;
     private tags = new Map<string, HTMLElement>();
+    /** Nodes are dots (zoomed out); the hovered one's name shows in `tip`. */
+    private compact = false;
+    private readonly tip: HTMLElement;
+    private hovered: string | undefined;
     /** Draw git change markers (main.ts's "Show changes"). */
     showChanges = true;
     /** The graph is the working tree, so every change is uncommitted and drawn in one color. */
@@ -70,8 +84,21 @@ export class GraphView {
         this.tagLayer.className = 'agent-tags';
         this.tagLayer.setAttribute('aria-hidden', 'true');
         container.after(this.tagLayer);
+        this.tip = document.createElement('span');
+        this.tip.className = 'node-tip';
+        this.tip.hidden = true;
+        this.tagLayer.append(this.tip);
         // Every frame the canvas draws (pan, zoom, layout), the tags follow their nodes.
         this.cy.on('render', () => this.placeTags());
+        this.cy.on('zoom', () => this.updateCompact());
+        this.cy.on('mouseover', 'node', (ev) => {
+            this.hovered = ev.target.id();
+            this.placeTags();
+        });
+        this.cy.on('mouseout', 'node', () => {
+            this.hovered = undefined;
+            this.placeTags();
+        });
         this.cy.on('tap', 'node', (ev) => {
             const id = ev.target.id();
             const box = this.model.isBox(id);
@@ -133,8 +160,38 @@ export class GraphView {
         );
     }
 
-    /** Put each tag on its node's top-right corner, on screen. */
+    /** Switch between dots and labels when the zoom crosses the threshold. */
+    private updateCompact(): void {
+        const zoom = this.cy.zoom();
+        const compact = this.compact ? zoom < EXPAND_ABOVE : zoom < COMPACT_BELOW;
+        if (compact !== this.compact) {
+            this.compact = compact;
+            this.applyCompact();
+        }
+    }
+
+    /** Open boxes stay boxes: only what's drawn as a single node becomes a dot. */
+    private applyCompact(): void {
+        this.cy.batch(() => {
+            this.cy.nodes().forEach((n) => {
+                n.toggleClass('compact', this.compact && !n.hasClass('box'));
+            });
+        });
+        this.placeTags();
+    }
+
+    /** Put each tag on its node's top-right corner, on screen, and the hovered dot's name under it. */
     private placeTags(): void {
+        const hovered = this.hovered && this.cy.getElementById(this.hovered);
+        if (hovered && hovered.nonempty() && hovered.hasClass('compact')) {
+            const bb = hovered.renderedBoundingBox({ includeLabels: false, includeOverlays: false });
+            this.tip.textContent = String(hovered.data('label'));
+            this.tip.style.left = `${(bb.x1 + bb.x2) / 2}px`;
+            this.tip.style.top = `${bb.y2}px`;
+            this.tip.hidden = false;
+        } else {
+            this.tip.hidden = true;
+        }
         for (const [id, tag] of this.tags) {
             const n = this.cy.getElementById(id);
             if (n.empty()) {
@@ -206,6 +263,7 @@ export class GraphView {
                 this.cy.getElementById(n.id).toggleClass('box', this.model.isOpenBox(n.id));
             }
         });
+        this.applyCompact();
 
         const leaves = this.cy.nodes().filter((n) => positions.has(n.id()));
         const animate = this.laidOut && !fit && visible.length <= ANIMATE_MAX_NODES;
@@ -215,6 +273,7 @@ export class GraphView {
             });
             if (!this.laidOut) {
                 this.cy.fit(undefined, 48);
+                this.updateCompact();
             } else if (fit) {
                 this.fit();
             }
@@ -293,7 +352,9 @@ export class GraphView {
     private nodeData(id: string) {
         const n = this.model.nodes.get(id)!;
         const { w, h } = this.sizeOf(id);
-        return { label: this.labelOf(id), kind: n.kind, w, h, dot: dotImage(this.theme.kind[n.kind]), mark: this.markOf(id) };
+        const color = this.theme.kind[n.kind];
+        const dotSize = this.model.isBox(id) ? COMPACT_BOX_DOT : COMPACT_DOT;
+        return { label: this.labelOf(id), kind: n.kind, w, h, dot: dotImage(color), color, dotSize, mark: this.markOf(id) };
     }
 
     /**
@@ -340,7 +401,7 @@ export class GraphView {
                     'background-position-y': '50%',
                     'background-clip': 'none',
                     'background-image-containment': 'over',
-                    'transition-property': 'opacity, border-color, underlay-opacity',
+                    'transition-property': 'opacity, border-color, underlay-opacity, width, height',
                     'transition-duration': 150,
                     'underlay-opacity': 0,
                     'underlay-padding': 6,
@@ -348,6 +409,21 @@ export class GraphView {
                 },
             },
             { selector: 'node[kind = "file"]', style: { 'font-weight': 600 } },
+            {
+                // Zoomed out: a dot in the kind's color, at the center of where its label goes.
+                selector: 'node.compact',
+                style: {
+                    shape: 'ellipse',
+                    width: 'data(dotSize)',
+                    height: 'data(dotSize)',
+                    label: '',
+                    'background-image': 'none',
+                    'background-color': 'data(color)',
+                    'border-color': t.background,
+                    'border-width': 2,
+                    'underlay-shape': 'ellipse',
+                },
+            },
             {
                 // An open box: its label sits above its contents.
                 selector: 'node.box',

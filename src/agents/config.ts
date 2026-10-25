@@ -1,7 +1,7 @@
 // src/agents/config.ts
 // Adds Overseer's hook to, and removes it from, each agent's hook settings,
 // leaving everything else in them as it was:
-//   Claude Code: .claude/settings.local.json  { hooks: { PreToolUse: [{ matcher, hooks: [{ type, command }] }] } }
+//   Claude Code: .claude/settings.local.json  { hooks: { PreToolUse: [{ matcher, hooks: [{ type, command }] }], SessionStart: [{ hooks: [...] }] } }
 //   Cursor:      .cursor/hooks.json           { version: 1, hooks: { beforeReadFile: [{ command }], afterFileEdit: [...] } }
 // Overseer's entries are the ones whose command runs `.overseer/hook.js`.
 // No vscode imports, so the tests use it directly.
@@ -33,28 +33,38 @@ const isOurs = (command: unknown) => typeof command === 'string' && command.repl
 
 // ---- Claude Code ------------------------------------------------------------------
 
+/** PreToolUse records each file; SessionStart points the agent to the lookup table (lookup.ts). */
+const CLAUDE_EVENTS = ['PreToolUse', 'SessionStart'];
+
 export function hasClaudeHook(settings: Json): boolean {
-    return groups(settings).some((g) => g.hooks?.some((h) => isOurs(h.command)));
+    return CLAUDE_EVENTS.some((e) => groups(settings, e).some((g) => g.hooks?.some((h) => isOurs(h.command))));
 }
 
 export function addClaudeHook(settings: Json, command: string): Json {
     const out = removeClaudeHook(settings);
     const hooks = { ...((out.hooks as Json | undefined) ?? {}) };
-    hooks.PreToolUse = [...((hooks.PreToolUse as MatcherGroup[] | undefined) ?? []), { matcher: CLAUDE_TOOLS.join('|'), hooks: [{ type: 'command', command }] }];
+    hooks.PreToolUse = [...groups(out, 'PreToolUse'), { matcher: CLAUDE_TOOLS.join('|'), hooks: [{ type: 'command', command }] }];
+    hooks.SessionStart = [...groups(out, 'SessionStart'), { hooks: [{ type: 'command', command }] }];
     return { ...out, hooks };
 }
 
 export function removeClaudeHook(settings: Json): Json {
     const hooks = settings.hooks as Json | undefined;
-    if (!hooks || !Array.isArray(hooks.PreToolUse)) {
+    if (!hooks || !CLAUDE_EVENTS.some((e) => Array.isArray(hooks[e]))) {
         return settings;
     }
-    const pre = (hooks.PreToolUse as MatcherGroup[])
-        .map((g) => ({ ...g, hooks: g.hooks?.filter((h) => !isOurs(h.command)) }))
-        .filter((g) => !g.hooks || g.hooks.length > 0);
-    const rest: Json = { ...hooks, PreToolUse: pre };
-    if (!pre.length) {
-        delete rest.PreToolUse;
+    const rest: Json = { ...hooks };
+    for (const e of CLAUDE_EVENTS) {
+        if (!Array.isArray(hooks[e])) {
+            continue;
+        }
+        const kept = (hooks[e] as MatcherGroup[])
+            .map((g) => ({ ...g, hooks: g.hooks?.filter((h) => !isOurs(h.command)) }))
+            .filter((g) => !g.hooks || g.hooks.length > 0);
+        rest[e] = kept;
+        if (!kept.length) {
+            delete rest[e];
+        }
     }
     const out: Json = { ...settings, hooks: rest };
     if (!Object.keys(rest).length) {
@@ -63,9 +73,9 @@ export function removeClaudeHook(settings: Json): Json {
     return out;
 }
 
-function groups(settings: Json): MatcherGroup[] {
-    const pre = (settings.hooks as Json | undefined)?.PreToolUse;
-    return Array.isArray(pre) ? (pre as MatcherGroup[]) : [];
+function groups(settings: Json, event: string): MatcherGroup[] {
+    const list = (settings.hooks as Json | undefined)?.[event];
+    return Array.isArray(list) ? (list as MatcherGroup[]) : [];
 }
 
 // ---- Cursor ---------------------------------------------------------------------------

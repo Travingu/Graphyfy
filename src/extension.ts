@@ -17,11 +17,15 @@ import { CONFIG_GLOB, WorkspaceIndex } from './workspaceIndex';
 const AUTO_REFRESH_DELAY_MS = 800;
 
 export function activate(context: vscode.ExtensionContext): void {
-    const index = new WorkspaceIndex(context.asAbsolutePath('out/parsers'));
-    const history = new HistoryIndex(context.asAbsolutePath('out/parsers'));
     const agents = new AgentHub(context.asAbsolutePath('out/agent-hook.js'), (events) => panel.agentEvents(events));
+    const index = new WorkspaceIndex(context.asAbsolutePath('out/parsers'), (graph) => agents.writeLookup(graph));
+    const history = new HistoryIndex(context.asAbsolutePath('out/parsers'));
     const panel = new GraphPanel(context, index, history, agents);
     agents.start();
+    // A connected agent's lookup table is kept current without the graph open.
+    if (agents.lookupWanted()) {
+        void index.scan().catch(() => {});
+    }
 
     const run = (fn: () => Promise<unknown>) => () => fn().catch((err) => panel.error(err));
 
@@ -48,11 +52,19 @@ export function activate(context: vscode.ExtensionContext): void {
     // Keep the graph current while editing.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const schedule = () => {
-        if (!panel.panel || !vscode.workspace.getConfiguration('overseer').get('autoRefresh')) {
+        if (!vscode.workspace.getConfiguration('overseer').get('autoRefresh') || !(panel.panel || agents.lookupWanted())) {
             return;
         }
         clearTimeout(timer);
-        timer = setTimeout(() => panel.refresh(true).catch(() => {}), AUTO_REFRESH_DELAY_MS);
+        timer = setTimeout(() => {
+            // Both share one scan. The panel skips it while showing a commit; the lookup table doesn't.
+            if (panel.panel) {
+                void panel.refresh(true).catch(() => {});
+            }
+            if (agents.lookupWanted()) {
+                void index.scan().catch(() => {});
+            }
+        }, AUTO_REFRESH_DELAY_MS);
     };
     const watcher = vscode.workspace.createFileSystemWatcher('**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}', false, true, false);
     const configWatcher = vscode.workspace.createFileSystemWatcher(CONFIG_GLOB, false, true, false);
@@ -69,6 +81,11 @@ export function activate(context: vscode.ExtensionContext): void {
         configWatcher,
         configWatcher.onDidCreate(schedule),
         configWatcher.onDidDelete(schedule),
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration('overseer.answerSearches')) {
+                agents.writeHookConfig();
+            }
+        }),
         { dispose: () => clearTimeout(timer) },
     );
 

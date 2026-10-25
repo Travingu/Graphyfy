@@ -8,6 +8,9 @@
 //   Cursor:      .cursor/hooks.json (added to .git/info/exclude)
 // The hook appends a line to .overseer/activity.jsonl for each file read or
 // edited, and this class turns new lines into AgentEvents for the graph.
+// While an agent is connected, each scan also rewrites .overseer/lookup.md
+// (agents/lookup.ts), which the agent is pointed to at the start of a session:
+// by the hook for Claude Code, by .cursor/rules/overseer.mdc for Cursor.
 
 import { execFile } from 'child_process';
 import * as fs from 'fs';
@@ -15,12 +18,15 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { parseActivity, type ActivityLine } from './agents/activity';
 import { addClaudeHook, addCursorHook, hasClaudeHook, hasCursorHook, hookCommand, removeClaudeHook, removeCursorHook } from './agents/config';
+import { cursorRule, LOOKUP_FILE, renderLookup } from './agents/lookup';
 import { git } from './git/git';
 import { parseJsonc } from './graph/aliases';
-import type { AgentEvent, AgentName, AgentStatus } from './types';
+import type { AgentEvent, AgentName, AgentStatus, GraphData } from './types';
 
 /** Events sent when the panel opens, so the feed isn't empty. */
 const HISTORY_EVENTS = 30;
+/** Cursor has no session-start hook, so an always-applied rule points it to the lookup table. */
+const CURSOR_RULE = '.cursor/rules/overseer.mdc';
 
 const AGENTS: Record<AgentName, { label: string; file: string; has(c: Record<string, unknown>): boolean; add(c: Record<string, unknown>, cmd: string): Record<string, unknown>; remove(c: Record<string, unknown>): Record<string, unknown> }> = {
     claude: { label: 'Claude Code', file: '.claude/settings.local.json', has: hasClaudeHook, add: addClaudeHook, remove: removeClaudeHook },
@@ -57,7 +63,13 @@ export class AgentHub implements vscode.Disposable {
         return { available: !!root, connected };
     }
 
-    /** Start following the log, and refresh the hook script if a newer Overseer is installed. */
+    /** An agent is connected, so the lookup table should be kept current. */
+    lookupWanted(): boolean {
+        const { connected } = this.status();
+        return connected.claude || connected.cursor;
+    }
+
+    /** Start following the log, and bring the hook script and settings up to date if a newer Overseer is installed. */
     start(): void {
         const root = this.root();
         if (!root) {
@@ -67,7 +79,26 @@ export class AgentHub implements vscode.Disposable {
         if (s.connected.claude || s.connected.cursor) {
             this.installScript(root);
         }
+        for (const agent of Object.keys(AGENTS) as AgentName[]) {
+            if (s.connected[agent]) {
+                this.writeSettings(root, agent);
+            }
+        }
         this.watch(root);
+    }
+
+    /** Rewrite .overseer/lookup.md from a fresh scan of the working tree, while an agent is connected. */
+    writeLookup(graph: GraphData): void {
+        const root = this.root();
+        if (!root || !this.lookupWanted()) {
+            return;
+        }
+        const file = path.join(root, LOOKUP_FILE);
+        const text = renderLookup(graph);
+        if (readText(file) !== text) {
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.writeFileSync(file, text);
+        }
     }
 
     /** The newest events in the log, for a feed that just opened. */
@@ -101,7 +132,7 @@ export class AgentHub implements vscode.Disposable {
             `Connect ${label} to Overseer?`,
             {
                 modal: true,
-                detail: `Overseer adds a hook to ${file} that records each file ${label} reads or edits in .overseer/, so the graph can show it live. It only watches: it never blocks or changes what ${label} does. Both stay on this machine and out of git.`,
+                detail: `Overseer adds a hook to ${file} that records each file ${label} reads or edits in .overseer/, so the graph can show it live. It never blocks or changes what ${label} does, unless you turn on overseer.answerSearches. Overseer also keeps a lookup table of your code in ${LOOKUP_FILE} and points ${label} to it, so it can find functions without reading whole files. Everything stays on this machine and out of git.`,
             },
             'Connect',
         );
@@ -109,9 +140,11 @@ export class AgentHub implements vscode.Disposable {
             return false;
         }
         this.installScript(root);
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, JSON.stringify(AGENTS[agent].add(current, hookCommand(root, agent)), null, 2) + '\n');
+        this.writeSettings(root, agent, current);
         await keepOutOfGit(root, file);
+        if (agent === 'cursor') {
+            await keepOutOfGit(root, CURSOR_RULE);
+        }
         this.watch(root);
         void vscode.window.showInformationMessage(`Overseer: ${label} is connected. Its reads and edits show on the graph from its next file access.`);
         return true;
@@ -127,6 +160,12 @@ export class AgentHub implements vscode.Disposable {
         if (current && AGENTS[agent].has(current)) {
             fs.writeFileSync(target, JSON.stringify(AGENTS[agent].remove(current), null, 2) + '\n');
         }
+        if (agent === 'cursor') {
+            fs.rmSync(path.join(root, CURSOR_RULE), { force: true });
+        }
+        if (!this.lookupWanted()) {
+            fs.rmSync(path.join(root, LOOKUP_FILE), { force: true });
+        }
     }
 
     dispose(): void {
@@ -137,8 +176,37 @@ export class AgentHub implements vscode.Disposable {
     private installScript(root: string): void {
         const dir = path.join(root, '.overseer');
         fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(path.join(dir, '.gitignore'), '# Overseer\'s local files: the agent hook and its activity log.\n*\n');
+        fs.writeFileSync(path.join(dir, '.gitignore'), "# Overseer's local files: the agent hook, its activity log and the code lookup table.\n*\n");
         fs.copyFileSync(this.scriptSource, path.join(dir, 'hook.js'));
+        this.writeHookConfig();
+    }
+
+    /** The settings the hook reads (it can't see VS Code's): .overseer/config.json. */
+    writeHookConfig(): void {
+        const root = this.root();
+        if (!root || !fs.existsSync(path.join(root, '.overseer'))) {
+            return;
+        }
+        const answerSearches = vscode.workspace.getConfiguration('overseer').get<boolean>('answerSearches') ?? false;
+        fs.writeFileSync(path.join(root, '.overseer', 'config.json'), JSON.stringify({ answerSearches }) + '\n');
+    }
+
+    /** Add Overseer's hook to the agent's settings (a no-op when it's there already), and Cursor's rule pointing to the lookup table. */
+    private writeSettings(root: string, agent: AgentName, current = readJson(path.join(root, AGENTS[agent].file))): void {
+        const target = path.join(root, AGENTS[agent].file);
+        // Compared as data, so a file that already has the hook keeps its own formatting.
+        const next = current && AGENTS[agent].add(current, hookCommand(root, agent));
+        if (next && (!fs.existsSync(target) || JSON.stringify(next) !== JSON.stringify(current))) {
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, JSON.stringify(next, null, 2) + '\n');
+        }
+        if (agent === 'cursor') {
+            const rule = path.join(root, CURSOR_RULE);
+            if (readText(rule) !== cursorRule()) {
+                fs.mkdirSync(path.dirname(rule), { recursive: true });
+                fs.writeFileSync(rule, cursorRule());
+            }
+        }
     }
 
     private watch(root: string): void {

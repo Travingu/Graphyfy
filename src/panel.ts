@@ -123,7 +123,9 @@ export class GraphPanel {
 
     private async setAgent(agent: AgentName, connect: boolean): Promise<void> {
         if (connect) {
-            await this.agents.connect(agent);
+            if (await this.agents.connect(agent)) {
+                void this.index.scan().catch(() => {}); // writes the lookup table
+            }
         } else {
             await this.agents.disconnect(agent);
         }

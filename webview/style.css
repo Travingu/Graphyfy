@@ -1099,8 +1099,24 @@ code {
     white-space: nowrap;
 }
 
-.agent-tag[hidden] {
+.agent-tag[hidden],
+.node-tip[hidden] {
     display: none;
+}
+
+/* The name of the dot under the pointer, when zoomed out too far for labels. */
+.node-tip {
+    position: absolute;
+    transform: translate(-50%, var(--space-1));
+    padding: 0 var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface, var(--bg));
+    color: var(--fg);
+    box-shadow: var(--shadow);
+    font-size: var(--text-xs);
+    line-height: var(--leading-xs);
+    white-space: nowrap;
 }
 
 /* The agent's name in the toolbar, as on the graph's tags. */

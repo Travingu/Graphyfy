@@ -60,6 +60,7 @@ function stubVscode() {
             createFileSystemWatcher: () => ({ onDidCreate() {}, onDidChange() {}, onDidDelete() {}, dispose() {} }),
             onDidSaveTextDocument: () => ({ dispose() {} }),
             onDidChangeWorkspaceFolders: () => ({ dispose() {} }),
+            onDidChangeConfiguration: () => ({ dispose() {} }),
             registerTextDocumentContentProvider: () => ({ dispose() {} }),
         },
     };

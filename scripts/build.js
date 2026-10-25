@@ -61,7 +61,12 @@ function copyParsers() {
     const dest = path.join(out, 'parsers');
     fs.mkdirSync(dest, { recursive: true });
     for (const file of WASM) {
-        fs.copyFileSync(path.join(root, 'node_modules', file), path.join(dest, path.basename(file)));
+        const from = path.join(root, 'node_modules', file);
+        const to = path.join(dest, path.basename(file));
+        // Test files run in parallel and each copies: rewriting a grammar another is loading corrupts it.
+        if (!fs.existsSync(to) || !fs.readFileSync(to).equals(fs.readFileSync(from))) {
+            fs.copyFileSync(from, to);
+        }
     }
     return dest;
 }

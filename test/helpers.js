@@ -1,6 +1,8 @@
 // Lets the tests require src/**/*.ts directly (compiled on the fly by esbuild;
-// type checking is `npm run typecheck`) and builds graphs from inline sources.
+// type checking is `npm run typecheck`) and builds graphs from inline sources
+// or a folder on disk.
 const fs = require('fs');
+const path = require('path');
 const esbuild = require('esbuild');
 const { copyParsers } = require('../scripts/build');
 
@@ -20,6 +22,23 @@ async function graphOf(files) {
     return buildGraph(Object.entries(files).map(([path, text]) => ({ path, text })));
 }
 
+const SKIP = new Set(['node_modules', 'dist', 'build', 'out', '.git', '.overseer']);
+
+/** Every file under `root` as `{ relative path: text }`, skipping dependencies and build output. */
+function readFolder(root, dir = root, files = {}) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            if (!SKIP.has(entry.name)) {
+                readFolder(root, full, files);
+            }
+        } else {
+            files[path.relative(root, full).replace(/\\/g, '/')] = fs.readFileSync(full, 'utf8');
+        }
+    }
+    return files;
+}
+
 /** Edges as readable strings: `call src/a.ts:main -> src/b.ts:helper`. */
 function edgeList(graph, kind) {
     const name = (id) => id.replace(/^[a-z]+:/, '');
@@ -29,4 +48,4 @@ function edgeList(graph, kind) {
         .sort();
 }
 
-module.exports = { graphOf, edgeList };
+module.exports = { graphOf, edgeList, readFolder };
