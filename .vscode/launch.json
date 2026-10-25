@@ -2,8 +2,8 @@
   "version": "0.2.0",
   "configurations": [
     {
-      // Builds, then opens sample/ in an Extension Development Host with only Graphyfy loaded.
-      "name": "Run Graphyfy (sample project)",
+      // Builds, then opens sample/ in an Extension Development Host with only Overseer loaded.
+      "name": "Run Overseer (sample project)",
       "type": "extensionHost",
       "request": "launch",
       "preLaunchTask": "npm: build",
@@ -12,7 +12,7 @@
     },
     {
       // The same, on whatever folder you pick: try it on a real project.
-      "name": "Run Graphyfy (choose a folder)",
+      "name": "Run Overseer (choose a folder)",
       "type": "extensionHost",
       "request": "launch",
       "preLaunchTask": "npm: build",

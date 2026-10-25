@@ -28,6 +28,8 @@ export class Model {
     readonly incoming = new Map<string, GraphEdge[]>();
     /** Boxes (folders, files, classes) that are open. */
     readonly open = new Set<string>();
+    /** Changed nodes inside each box, at any depth (git change markers). */
+    private readonly changed = new Map<string, number>();
 
     constructor(readonly data: GraphData, previouslyOpen?: Iterable<string>) {
         for (const n of data.nodes) {
@@ -43,6 +45,13 @@ export class Model {
         for (const e of data.edges) {
             push(this.outgoing, e.source, e);
             push(this.incoming, e.target, e);
+        }
+        for (const n of data.nodes) {
+            if (n.change) {
+                for (const a of this.ancestors(n.id)) {
+                    this.changed.set(a, (this.changed.get(a) ?? 0) + 1);
+                }
+            }
         }
         for (const id of previouslyOpen ?? []) {
             if (this.children.has(id)) {
@@ -172,6 +181,11 @@ export class Model {
             }
         }
         return [...bundled.values()];
+    }
+
+    /** Added, modified and removed nodes inside a box, at any depth. */
+    changesInside(id: string): number {
+        return this.changed.get(id) ?? 0;
     }
 
     /** Symbols inside a box, at any depth (files for a folder). */

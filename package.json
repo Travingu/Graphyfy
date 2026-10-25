@@ -1,7 +1,7 @@
 {
-  "name": "graphyfy",
-  "displayName": "Graphyfy",
-  "description": "See how a TypeScript or JavaScript codebase fits together: an interactive graph of folders, files, classes and functions, connected by imports, calls, JSX renders and inheritance.",
+  "name": "overseer",
+  "displayName": "Overseer",
+  "description": "See how a TypeScript or JavaScript codebase fits together: an interactive graph of folders, files, classes and functions, connected by imports, calls, JSX renders and inheritance. Step back through Git history to see what each commit changed.",
   "version": "0.2.0",
   "publisher": "trav1snguyen",
   "author": "Travis Nguyen",
@@ -26,15 +26,20 @@
     "call graph",
     "dependency graph",
     "visualization",
-    "architecture"
+    "architecture",
+    "git",
+    "history"
   ],
   "main": "./out/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "workspaceContains:.overseer/hook.js"
+  ],
   "scripts": {
     "build": "node scripts/build.js",
     "watch": "node scripts/build.js --watch",
     "typecheck": "tsc -p . && tsc -p webview",
-    "test": "node scripts/build.js && node --test test/builder.test.js test/smoke.test.js",
+    "harness": "node scripts/build.js && node test/harness.js",
+    "test": "node scripts/build.js && node --test test/builder.test.js test/git.test.js test/agents.test.js test/smoke.test.js",
     "vscode:prepublish": "node scripts/build.js --production",
     "package": "vsce package",
     "publish": "vsce publish"
@@ -42,61 +47,88 @@
   "contributes": {
     "commands": [
       {
-        "command": "graphyfy.open",
+        "command": "overseer.open",
         "title": "Open Graph",
-        "category": "Graphyfy",
+        "category": "Overseer",
         "icon": "$(type-hierarchy)"
       },
       {
-        "command": "graphyfy.reveal",
+        "command": "overseer.reveal",
         "title": "Show in Graph",
-        "category": "Graphyfy"
+        "category": "Overseer"
       },
       {
-        "command": "graphyfy.refresh",
+        "command": "overseer.refresh",
         "title": "Rescan Workspace",
-        "category": "Graphyfy"
+        "category": "Overseer"
+      },
+      {
+        "command": "overseer.history",
+        "title": "Show Git History",
+        "category": "Overseer",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "overseer.connectAgent",
+        "title": "Connect an AI Agent",
+        "category": "Overseer"
+      },
+      {
+        "command": "overseer.disconnectAgent",
+        "title": "Disconnect an AI Agent",
+        "category": "Overseer"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "graphyfy.open",
+          "command": "overseer.open",
           "when": "resourceLangId =~ /^(typescript|typescriptreact|javascript|javascriptreact)$/",
           "group": "navigation@90"
         }
       ],
       "editor/context": [
         {
-          "command": "graphyfy.reveal",
+          "command": "overseer.reveal",
           "when": "resourceLangId =~ /^(typescript|typescriptreact|javascript|javascriptreact)$/",
           "group": "navigation@90"
         }
       ]
     },
     "configuration": {
-      "title": "Graphyfy",
+      "title": "Overseer",
       "properties": {
-        "graphyfy.include": {
+        "overseer.include": {
           "type": "string",
           "default": "**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}",
           "description": "Glob pattern of the files to analyze. Declaration files (.d.ts) are always skipped."
         },
-        "graphyfy.exclude": {
+        "overseer.exclude": {
           "type": "string",
           "default": "{**/node_modules/**,**/dist/**,**/build/**,**/out/**,**/coverage/**,**/.next/**,**/.nuxt/**,**/.svelte-kit/**,**/.vercel/**,**/.git/**,**/*.min.js}",
           "description": "Glob pattern of the files and folders to skip: build output, dependencies and minified code."
         },
-        "graphyfy.maxFiles": {
+        "overseer.maxFiles": {
           "type": "number",
           "default": 3000,
           "minimum": 1,
           "description": "The most files to analyze. Larger workspaces show the first ones found."
         },
-        "graphyfy.autoRefresh": {
+        "overseer.autoRefresh": {
           "type": "boolean",
           "default": true,
           "description": "Rebuild the graph when files are saved, created or deleted."
+        },
+        "overseer.answerSearches": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "When Claude Code greps the code for a function, class or file name that Overseer's lookup table knows, answer from the table instead: where it's defined and what uses it, in a few lines instead of every match. Running the same search again goes through. Uses fewer tokens."
+        },
+        "overseer.historyLimit": {
+          "type": "number",
+          "default": 500,
+          "minimum": 1,
+          "description": "The most commits the Git history timeline shows, newest first."
         }
       }
     }
@@ -104,11 +136,13 @@
   "devDependencies": {
     "@types/cytoscape": "3.21.9",
     "@types/node": "22.15.0",
+    "@types/picomatch": "4.0.0",
     "@types/vscode": "1.95.0",
     "@vscode/vsce": "4.0.0",
     "cytoscape": "3.34.4",
     "elkjs": "0.11.0",
     "esbuild": "0.28.2",
+    "picomatch": "4.0.7",
     "tree-sitter-javascript": "0.25.0",
     "tree-sitter-typescript": "0.23.2",
     "typescript": "7.0.2",

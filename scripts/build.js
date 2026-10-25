@@ -1,6 +1,7 @@
 // Builds the extension into out/:
 //   src/extension.ts -> out/extension.js   (extension host, CommonJS for Node)
 //   webview/main.ts  -> out/webview.js     (the graph page, plus out/webview.css)
+//   src/agents/hook.ts -> out/agent-hook.js (the hook AI agents run, copied into a project when connected)
 // and copies the tree-sitter runtime and grammars to out/parsers/, where
 // src/parser/loader.ts loads them.
 //
@@ -45,11 +46,27 @@ const webview = {
     logLevel: 'warning',
 };
 
+/** @type {import('esbuild').BuildOptions} */
+const hook = {
+    entryPoints: [path.join(root, 'src', 'agents', 'hook.ts')],
+    outfile: path.join(out, 'agent-hook.js'),
+    bundle: true,
+    format: 'cjs',
+    platform: 'node',
+    target: 'node18',
+    logLevel: 'warning',
+};
+
 function copyParsers() {
     const dest = path.join(out, 'parsers');
     fs.mkdirSync(dest, { recursive: true });
     for (const file of WASM) {
-        fs.copyFileSync(path.join(root, 'node_modules', file), path.join(dest, path.basename(file)));
+        const from = path.join(root, 'node_modules', file);
+        const to = path.join(dest, path.basename(file));
+        // Test files run in parallel and each copies: rewriting a grammar another is loading corrupts it.
+        if (!fs.existsSync(to) || !fs.readFileSync(to).equals(fs.readFileSync(from))) {
+            fs.copyFileSync(from, to);
+        }
     }
     return dest;
 }
@@ -63,13 +80,14 @@ if (require.main === module) {
     copyParsers();
     (async () => {
         if (watch) {
-            for (const options of [extension, webview]) {
+            for (const options of [extension, webview, hook]) {
                 const ctx = await esbuild.context({ ...options, ...extra, logLevel: 'info' });
                 await ctx.watch();
             }
             return;
         }
-        await Promise.all([esbuild.build({ ...extension, ...extra }), esbuild.build({ ...webview, ...extra })]);
-        console.log('Built out/extension.js and out/webview.js');
+        // The hook runs in someone's project on every file an agent touches: no source map beside it.
+        await Promise.all([esbuild.build({ ...extension, ...extra }), esbuild.build({ ...webview, ...extra }), esbuild.build({ ...hook, minify: production })]);
+        console.log('Built out/extension.js, out/webview.js and out/agent-hook.js');
     })().catch(() => process.exit(1));
 }

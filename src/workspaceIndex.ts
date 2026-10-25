@@ -1,5 +1,5 @@
 // src/workspaceIndex.ts
-// Finds the workspace's TypeScript and JavaScript files (graphyfy.include,
+// Finds the workspace's TypeScript and JavaScript files (overseer.include,
 // exclude and maxFiles), and the tsconfig and jsconfig files that define import
 // aliases, parses them and keeps the latest graph. Files whose text hasn't
 // changed keep their parse between scans.
@@ -14,6 +14,8 @@ const READ_BATCH = 64;
 const DEFAULT_INCLUDE = '**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}';
 /** Config files read for import aliases (aliases.ts). */
 export const CONFIG_GLOB = '**/{tsconfig,jsconfig}*.json';
+/** Overseer's own files in a project (the agent hook, agentHub.ts): never part of the graph, whatever overseer.exclude says. */
+export const OWN_FILES = /(^|[\\/])\.overseer[\\/]/;
 
 const decoder = new TextDecoder('utf-8');
 
@@ -23,7 +25,11 @@ export class WorkspaceIndex {
     private readonly uriByPath = new Map<string, vscode.Uri>();
     private scanning: Promise<GraphData> | undefined;
 
-    constructor(private readonly wasmDir: string) {}
+    /** `onScan` gets every new graph (the agents' lookup table). */
+    constructor(
+        private readonly wasmDir: string,
+        private readonly onScan?: (graph: GraphData) => void,
+    ) {}
 
     /** Rescan the workspace. Concurrent calls share one scan. */
     scan(): Promise<GraphData> {
@@ -35,14 +41,14 @@ export class WorkspaceIndex {
 
     private async doScan(): Promise<GraphData> {
         await initParsers(this.wasmDir);
-        const cfg = vscode.workspace.getConfiguration('graphyfy');
+        const cfg = vscode.workspace.getConfiguration('overseer');
         const include = cfg.get<string>('include') || DEFAULT_INCLUDE;
         const exclude = cfg.get<string>('exclude') || null;
         const maxFiles = Math.max(1, cfg.get<number>('maxFiles') ?? 3000);
         const folders = vscode.workspace.workspaceFolders ?? [];
         const multiRoot = folders.length > 1;
 
-        const uris = await vscode.workspace.findFiles(include, exclude, maxFiles + 1);
+        const uris = (await vscode.workspace.findFiles(include, exclude, maxFiles + 1)).filter((u) => !OWN_FILES.test(u.fsPath));
         const truncated = uris.length > maxFiles;
         if (truncated) {
             uris.length = maxFiles;
@@ -89,6 +95,11 @@ export class WorkspaceIndex {
         graph.stats.truncated = truncated || undefined;
         graph.stats.maxFiles = maxFiles;
         this.graph = graph;
+        try {
+            this.onScan?.(graph);
+        } catch {
+            // a listener failing (a read-only folder) doesn't fail the scan
+        }
         return graph;
     }
 

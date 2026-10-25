@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en" class="vscode-dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Overseer harness</title>
+<link rel="stylesheet" href="webview.css">
+<style>
+    /* The VS Code theme variables the webview reads (theme.ts, style.css): Dark Modern and Light Modern.
+       On <html>, where VS Code puts them, since theme.ts reads them from there. */
+    html.vscode-dark {
+        --vscode-editor-background: #1f1f1f;
+        --vscode-editor-foreground: #cccccc;
+        --vscode-foreground: #cccccc;
+        --vscode-descriptionForeground: #9d9d9d;
+        --vscode-editorWidget-background: #202020;
+        --vscode-widget-border: #313131;
+        --vscode-focusBorder: #0078d4;
+        --vscode-list-hoverBackground: #2a2d2e;
+        --vscode-list-activeSelectionBackground: #04395e;
+        --vscode-list-activeSelectionForeground: #ffffff;
+    }
+    html.vscode-light {
+        --vscode-editor-background: #ffffff;
+        --vscode-editor-foreground: #3b3b3b;
+        --vscode-foreground: #3b3b3b;
+        --vscode-descriptionForeground: #6f6f6f;
+        --vscode-editorWidget-background: #f8f8f8;
+        --vscode-widget-border: #e5e5e5;
+        --vscode-focusBorder: #005fb8;
+        --vscode-list-hoverBackground: #f2f2f2;
+        --vscode-list-activeSelectionBackground: #e8e8e8;
+        --vscode-list-activeSelectionForeground: #000000;
+    }
+    html {
+        --vscode-font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    }
+    body {
+        margin: 0;
+        height: 100vh;
+        background: var(--vscode-editor-background);
+    }
+</style>
+</head>
+<body class="vscode-dark">
+<div id="app"></div>
+<script>
+    // ?theme=light for the light theme.
+    if (new URLSearchParams(location.search).get('theme') === 'light') {
+        document.documentElement.className = document.body.className = 'vscode-light';
+    }
+    // Stands in for the extension host (src/panel.ts): answers the webview with the graph the server built.
+    const reply = (m) => window.postMessage(m, '*');
+    let state;
+    window.acquireVsCodeApi = () => ({
+        postMessage(m) {
+            console.log('[harness] webview sent', m);
+            if (m.type === 'ready' || m.type === 'refresh') {
+                reply({ type: 'agentStatus', status: { available: false, connected: { claude: false, cursor: false } } });
+                fetch('graph.json')
+                    .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t)))))
+                    .then((data) => reply({ type: 'graph', data, view: { kind: 'worktree' } }))
+                    .catch((err) => reply({ type: 'error', message: String(err.message || err) }));
+            } else if (m.type === 'loadHistory') {
+                reply({ type: 'historyError', message: 'The harness has no Git history. Run the extension (F5) for the timeline.' });
+            }
+        },
+        getState: () => state,
+        setState: (s) => {
+            state = s;
+        },
+    });
+</script>
+<script src="webview.js"></script>
+</body>
+</html>

@@ -38,7 +38,11 @@ export interface GraphNode {
     isAsync?: boolean;
     isStatic?: boolean;
     grammar?: Grammar;
+    /** What the commit being viewed did to this node (git/changes.ts). A `removed` node is a ghost from the parent commit. */
+    change?: Change;
 }
+
+export type Change = 'added' | 'modified' | 'removed';
 
 export interface GraphEdge {
     id: string;
@@ -63,6 +67,8 @@ export interface GraphStats {
     truncated?: boolean;
     maxFiles?: number;
     ms?: number;
+    /** Files, classes and functions the commit being viewed added, modified and removed. */
+    changes?: Record<Change, number>;
 }
 
 export interface GraphData {
@@ -72,13 +78,84 @@ export interface GraphData {
     stats: GraphStats;
 }
 
+// ---- git history ---------------------------------------------------------------
+
+export interface Commit {
+    sha: string;
+    /** First parent first. */
+    parents: string[];
+    author: string;
+    /** Unix seconds. */
+    time: number;
+    subject: string;
+}
+
+export interface Branch {
+    /** `main`, or `origin/main` for a remote branch. */
+    name: string;
+    sha: string;
+    remote: boolean;
+}
+
+export interface HistoryData {
+    /** Newest first, in topological order. */
+    commits: Commit[];
+    branches: Branch[];
+    head: string;
+    /** The checked-out branch, or undefined on a detached HEAD. */
+    headBranch?: string;
+    /** The working tree has uncommitted changes. */
+    dirty: boolean;
+    /** There are more commits than overseer.historyLimit. */
+    truncated: boolean;
+}
+
+/** What the graph shows: the files on disk, or the code at a commit (read-only). */
+export type ViewInfo =
+    | { kind: 'worktree' }
+    | { kind: 'commit'; sha: string; subject: string; author: string; time: number; parent?: string; branch?: string; canSwitch: boolean };
+
+// ---- AI agents -------------------------------------------------------------------
+
+export type AgentName = 'claude' | 'cursor';
+
+/** One file an agent touched, from the hook's activity log (src/agents/). */
+export interface AgentEvent {
+    /** Milliseconds since the epoch. */
+    t: number;
+    agent: AgentName;
+    action: 'read' | 'edit' | 'search';
+    /** Workspace-relative path, as the graph uses it; absolute when outside the workspace. */
+    file: string;
+    inWorkspace: boolean;
+}
+
+export interface AgentStatus {
+    /** A folder is open, so there's somewhere to connect. */
+    available: boolean;
+    connected: Record<AgentName, boolean>;
+}
+
 export type ToWebview =
+    | { type: 'agentStatus'; status: AgentStatus }
+    | { type: 'agentActivity'; events: AgentEvent[] }
     | { type: 'loading'; message: string }
-    | { type: 'graph'; data: GraphData }
-    | { type: 'error'; message: string }
-    | { type: 'focus'; nodeId: string };
+    | { type: 'graph'; data: GraphData; view: ViewInfo; seq?: number }
+    | { type: 'error'; message: string; seq?: number }
+    | { type: 'focus'; nodeId: string }
+    | { type: 'openHistory' }
+    | { type: 'history'; data: HistoryData }
+    | { type: 'historyError'; message: string };
 
 export type FromWebview =
+    | { type: 'connectAgent'; agent: AgentName }
+    | { type: 'disconnectAgent'; agent: AgentName }
     | { type: 'ready' }
-    | { type: 'open'; file: string; line: number }
-    | { type: 'refresh' };
+    /** `before`: open the version before the change (for a removed node). */
+    | { type: 'open'; file: string; line: number; before?: boolean }
+    | { type: 'refresh' }
+    | { type: 'loadHistory' }
+    | { type: 'viewCommit'; sha: string; branch?: string; seq: number }
+    | { type: 'viewWorktree'; seq: number }
+    | { type: 'switchBranch'; branch: string }
+    | { type: 'diff'; file: string; line: number };
