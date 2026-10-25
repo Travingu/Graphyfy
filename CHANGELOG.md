@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - Zoomed out, nodes are drawn as dots in their kind's color, and open into labels as you zoom in. Hover over a dot to see its name.
 
