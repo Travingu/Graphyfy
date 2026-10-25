@@ -2,7 +2,8 @@ const log = require('./log');
 
 function route(req, res) {
     log(`${req.method} ${req.url}`);
-    if (req.url === '/health') {
+    const { pathname } = new URL(req.url, 'http://localhost');
+    if (pathname === '/health') {
         return sendJson(res, 200, { ok: true });
     }
     return sendJson(res, 404, { error: 'Not found' });

@@ -9,18 +9,26 @@ interface Props {
     onRemove(id: string): void;
 }
 
+const EMPTY: Record<Filter, string> = {
+    all: 'No tasks yet.',
+    open: 'No open tasks.',
+    done: 'No finished tasks.',
+};
+
 export function TaskList({ tasks, filter, onFilter, onToggle, onRemove }: Props) {
-    if (!tasks.length) {
-        return <p>No tasks yet.</p>;
-    }
+    // The filter bar stays visible when the list is empty, or a filter with no matches would leave no way back.
     return (
         <section>
             <FilterBar value={filter} onChange={onFilter} />
-            <ul>
-                {tasks.map((t) => (
-                    <TaskItem key={t.id} task={t} onToggle={onToggle} onRemove={onRemove} />
-                ))}
-            </ul>
+            {tasks.length ? (
+                <ul>
+                    {tasks.map((t) => (
+                        <TaskItem key={t.id} task={t} onToggle={onToggle} onRemove={onRemove} />
+                    ))}
+                </ul>
+            ) : (
+                <p>{EMPTY[filter]}</p>
+            )}
         </section>
     );
 }
