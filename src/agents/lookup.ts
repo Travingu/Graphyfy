@@ -97,6 +97,8 @@ const NAME_PATTERN = /^(?:\\b)?([A-Za-z_$][\w$]*(?:\\?\.[A-Za-z_$][\w$]*)?)(?:\\
 const CODE_TYPES = ['js', 'ts', 'javascript', 'typescript'];
 /** Lines of the table put in an answer, so a common name doesn't flood it. */
 const MAX_ANSWER_LINES = 40;
+/** How an answer starts, so the usage estimate (usage.ts) finds answers in a transcript. */
+export const ANSWER_HEAD = `Overseer answered this search from its lookup table`;
 
 /** Claude Code's Grep tool input, as far as answering it goes. */
 export interface GrepInput {
@@ -149,7 +151,7 @@ export function answerSearch(name: string, table: string, ignoreCase = false): s
     const shown = [...defs, ...uses].slice(0, MAX_ANSWER_LINES);
     const more = hits.length - shown.length;
     return [
-        `Overseer answered this search from its lookup table (${LOOKUP_FILE}), instead of grepping the code.`,
+        `${ANSWER_HEAD} (${LOOKUP_FILE}), instead of grepping the code.`,
         ...(defs.length ? [`Defined:`, ...shown.filter((l) => defs.includes(l))] : []),
         ...(uses.length ? [`Used by (each line's "calls" or "imports" names it):`, ...shown.filter((l) => uses.includes(l))] : []),
         ...(more > 0 ? [`…and ${more} more lines: grep ${LOOKUP_FILE} for the rest.`] : []),

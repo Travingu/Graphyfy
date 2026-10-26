@@ -45,10 +45,17 @@
 <body class="vscode-dark">
 <div id="app"></div>
 <script>
-    // ?theme=light for the light theme.
-    if (new URLSearchParams(location.search).get('theme') === 'light') {
+    // ?theme=light for the light theme; ?agents to show Claude Code connected, with two sessions' token use.
+    const params = new URLSearchParams(location.search);
+    if (params.get('theme') === 'light') {
         document.documentElement.className = document.body.className = 'vscode-light';
     }
+    const agents = params.has('agents');
+    const hour = 3600 * 1000;
+    const sessions = [
+        { id: 'a', title: 'Fix task filtering', start: Date.now() - hour, end: Date.now() - 60000, requests: 64, used: 4210000, saved: 382000, spent: 41000, answered: 7, repeated: 1, guidedReads: 12, tableLookups: 9 },
+        { id: 'b', title: 'Add the server log', start: Date.now() - 26 * hour, end: Date.now() - 25 * hour, requests: 30, used: 1640000, saved: 90000, spent: 22000, answered: 2, repeated: 0, guidedReads: 4, tableLookups: 5 },
+    ];
     // Stands in for the extension host (src/panel.ts): answers the webview with the graph the server built.
     const reply = (m) => window.postMessage(m, '*');
     let state;
@@ -56,7 +63,10 @@
         postMessage(m) {
             console.log('[harness] webview sent', m);
             if (m.type === 'ready' || m.type === 'refresh') {
-                reply({ type: 'agentStatus', status: { available: false, connected: { claude: false, cursor: false } } });
+                reply({ type: 'agentStatus', status: { available: agents, connected: { claude: agents, cursor: false } } });
+                if (agents) {
+                    reply({ type: 'agentUsage', sessions });
+                }
                 fetch('graph.json')
                     .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(t)))))
                     .then((data) => reply({ type: 'graph', data, view: { kind: 'worktree' } }))

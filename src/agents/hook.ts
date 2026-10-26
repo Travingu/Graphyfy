@@ -2,7 +2,9 @@
 // The hook Claude Code and Cursor run on every file they read or edit, once
 // Overseer connects them (agentHub.ts copies this script to .overseer/hook.js).
 // It appends one line per file to the activity log the extension watches, and
-// at the start of a Claude Code session points it to the lookup table.
+// at the start of a Claude Code session points it to the lookup table. It
+// also notes each Claude Code session's transcript in .overseer/sessions.jsonl,
+// which the token estimate reads (usage.ts).
 //
 //   node hook.js <claude|cursor> <activity log>     (the hook's JSON on stdin)
 //
@@ -23,6 +25,8 @@ const LOG_MAX_BYTES = 512 * 1024;
 const LOG_KEEP_LINES = 500;
 /** A Grep repeated within this long after being answered from the table goes through. */
 const REPEAT_MS = 2 * 60 * 1000;
+/** Each Claude Code session's id and transcript, one JSON line each, in .overseer/. */
+const SESSIONS_FILE = 'sessions.jsonl';
 
 const [, , agent, logFile] = process.argv;
 const dir = logFile ? path.dirname(logFile) : undefined;
@@ -43,6 +47,7 @@ function answer(input: unknown): void {
     if (agent !== 'claude' || !dir) {
         return;
     }
+    recordSession(dir, input as { session_id?: unknown; transcript_path?: unknown } | undefined);
     // Claude Code adds this to the session's context, once Overseer has written the table.
     if (event === 'SessionStart' && fs.existsSync(path.join(dir, path.basename(LOOKUP_FILE)))) {
         process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: LOOKUP_HINT } }));
@@ -53,6 +58,29 @@ function answer(input: unknown): void {
             // Claude Code shows the model the reason in place of the search results.
             process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }));
         }
+    }
+}
+
+/** Note the session's transcript once, for the token estimate (usage.ts). Sessions started before connecting show up on their next tool call. */
+function recordSession(dir: string, input: { session_id?: unknown; transcript_path?: unknown } | undefined): void {
+    const id = input?.session_id;
+    const transcript = input?.transcript_path;
+    if (typeof id !== 'string' || typeof transcript !== 'string') {
+        return;
+    }
+    try {
+        const file = path.join(dir, SESSIONS_FILE);
+        let known = '';
+        try {
+            known = fs.readFileSync(file, 'utf8');
+        } catch {
+            // none yet
+        }
+        if (!known.includes(JSON.stringify(id))) {
+            fs.appendFileSync(file, JSON.stringify({ t: Date.now(), id, transcript }) + '\n');
+        }
+    } catch {
+        // the estimate misses this session; the agent carries on regardless
     }
 }
 

@@ -1,9 +1,10 @@
 // webview/agents.ts
-// AI agents on the graph: which are connected, a feed of the files they read
-// and edited, and the live line in the toolbar ("Claude editing api.ts").
+// AI agents on the graph: which are connected, the tokens Overseer saved
+// Claude Code, a feed of the files they read and edited, and the live line in
+// the toolbar ("Claude editing api.ts").
 // The glow on the graph itself is view.ts's pulse(); main.ts ties them up.
 
-import type { AgentEvent, AgentName, AgentStatus } from '../src/types';
+import type { AgentEvent, AgentName, AgentStatus, SessionUsage } from '../src/types';
 import { relativeDate } from './timeline';
 import { esc } from './util';
 
@@ -35,6 +36,7 @@ export interface AgentActions {
 export class AgentFeed {
     status: AgentStatus = { available: false, connected: { claude: false, cursor: false } };
     private rows: FeedRow[] = [];
+    private sessions: SessionUsage[] = [];
     private liveTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(
@@ -45,6 +47,11 @@ export class AgentFeed {
 
     setStatus(status: AgentStatus): void {
         this.status = status;
+    }
+
+    /** Claude Code's measured sessions, newest first. */
+    setUsage(sessions: SessionUsage[]): void {
+        this.sessions = sessions;
     }
 
     /** New events, oldest first. */
@@ -91,6 +98,7 @@ export class AgentFeed {
             <h3 class="section-title">AI agents</h3>
             ${this.status.available ? `<ul class="agent-list">${agents.join('')}</ul>` : '<p class="hint">Open a folder to connect an agent.</p>'}
             <label class="legend-check"><input id="follow-agent" type="checkbox" ${this.following ? 'checked' : ''}>Follow the agent on the graph</label>
+            ${usageHtml(this.sessions)}
             <h3 class="section-title">Recent activity <span class="count">${this.rows.length}</span></h3>
             ${feed}`;
         el.querySelectorAll<HTMLButtonElement>('[data-agent]').forEach((b) =>
@@ -118,6 +126,46 @@ export class AgentFeed {
         clearTimeout(this.liveTimer);
         this.liveTimer = setTimeout(() => (this.live.hidden = true), LIVE_MS);
     }
+}
+
+/** The latest Claude Code session's tokens, against an estimate of them without Overseer. */
+function usageHtml(sessions: SessionUsage[]): string {
+    const s = sessions[0];
+    if (!s) {
+        return '';
+    }
+    const row = (name: string, meta: string, title = '') =>
+        `<li class="row static"${title ? ` title="${esc(title)}"` : ''}><span class="row-name">${name}</span><span class="row-meta">${meta}</span></li>`;
+    const all = sessions.reduce((t, x) => ({ used: t.used + x.used, net: t.net + x.saved - x.spent }), { used: 0, net: 0 });
+    const rows = [
+        row('Searches answered from the table', `${s.answered}${s.repeated ? ` · ${s.repeated} run again` : ''}`),
+        row('Reads narrowed by the table', `${s.guidedReads}`),
+        row('Kept out of the conversation', `≈${tokens(s.saved)}`),
+        row("Overseer's own text", `≈${tokens(s.spent)}`, `The session hint, ${s.tableLookups} lookups in the table, and its answers`),
+        sessions.length > 1 ? row(`All ${sessions.length} sessions`, change(all.used, all.net)) : '',
+    ];
+    return `
+        <h3 class="section-title">Token use <span class="count" title="${esc(s.title ?? '')}">Claude Code, ${esc(relativeDate(s.end / 1000))}</span></h3>
+        <dl class="stats usage-stats">
+          <div><dt>Used</dt><dd>${tokens(s.used)}</dd></div>
+          <div><dt>Without Overseer</dt><dd>≈${tokens(s.used + s.saved - s.spent)}</dd></div>
+        </dl>
+        <ul class="rows">${rows.join('')}</ul>
+        <p class="hint">Used is Claude Code's own count over ${s.requests} requests. Without Overseer is an estimate: every request re-sends the conversation, so text kept out of it counts once per later request.</p>`;
+}
+
+/** 840, 12.4k, 1.24M. */
+function tokens(n: number): string {
+    const a = Math.abs(n);
+    const s = a < 1e3 ? `${a}` : a < 1e6 ? `${(a / 1e3).toFixed(a < 1e4 ? 1 : 0)}k` : `${(a / 1e6).toFixed(a < 1e7 ? 2 : 1)}M`;
+    return n < 0 ? `−${s}` : s;
+}
+
+/** "≈8% fewer tokens", against what would have been used without Overseer. */
+function change(used: number, net: number): string {
+    const without = used + net;
+    const pct = without > 0 ? Math.round((Math.abs(net) / without) * 100) : 0;
+    return pct === 0 ? 'about the same' : `≈${pct}% ${net > 0 ? 'fewer' : 'more'} tokens`;
 }
 
 function rowHtml(r: FeedRow): string {

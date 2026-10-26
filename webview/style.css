@@ -1157,6 +1157,14 @@ code {
     background: var(--agent);
 }
 
+#agents .usage-stats {
+    margin-bottom: var(--space-1);
+}
+
+#agents .usage-stats + .rows + .hint {
+    margin-bottom: var(--space-2);
+}
+
 #agents .legend-check {
     margin-bottom: var(--space-2);
     font-size: var(--text-xs);

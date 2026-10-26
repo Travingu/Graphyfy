@@ -11,6 +11,8 @@
 // While an agent is connected, each scan also rewrites .overseer/lookup.md
 // (agents/lookup.ts), which the agent is pointed to at the start of a session:
 // by the hook for Claude Code, by .cursor/rules/overseer.mdc for Cursor.
+// The hook also notes each Claude Code session's transcript, which usage()
+// measures for the tokens Overseer saved it (agents/usage.ts).
 
 import { execFile } from 'child_process';
 import * as fs from 'fs';
@@ -19,14 +21,21 @@ import * as vscode from 'vscode';
 import { parseActivity, type ActivityLine } from './agents/activity';
 import { addClaudeHook, addCursorHook, hasClaudeHook, hasCursorHook, hookCommand, removeClaudeHook, removeCursorHook } from './agents/config';
 import { cursorRule, LOOKUP_FILE, renderLookup } from './agents/lookup';
+import { grepOutputChars, measureSession, type Workspace } from './agents/usage';
 import { git } from './git/git';
 import { parseJsonc } from './graph/aliases';
-import type { AgentEvent, AgentName, AgentStatus, GraphData } from './types';
+import type { AgentEvent, AgentName, AgentStatus, GraphData, SessionUsage } from './types';
 
 /** Events sent when the panel opens, so the feed isn't empty. */
 const HISTORY_EVENTS = 30;
 /** Cursor has no session-start hook, so an always-applied rule points it to the lookup table. */
 const CURSOR_RULE = '.cursor/rules/overseer.mdc';
+/** Sessions measured for the token estimate, newest first. */
+const USAGE_SESSIONS = 20;
+/** Wait for the agent to pause before measuring its session again. */
+const USAGE_DELAY_MS = 4000;
+/** Files past this size are left out of a Grep's estimate, like the binaries ripgrep skips. */
+const GREP_MAX_FILE_BYTES = 1024 * 1024;
 
 const AGENTS: Record<AgentName, { label: string; file: string; has(c: Record<string, unknown>): boolean; add(c: Record<string, unknown>, cmd: string): Record<string, unknown>; remove(c: Record<string, unknown>): Record<string, unknown> }> = {
     claude: { label: 'Claude Code', file: '.claude/settings.local.json', has: hasClaudeHook, add: addClaudeHook, remove: removeClaudeHook },
@@ -38,10 +47,18 @@ export class AgentHub implements vscode.Disposable {
     private offset = 0;
     private lastT = 0;
     private reading = false;
+    /** Files of the last scan, for a Grep's estimate outside a git repository. */
+    private scanned: string[] = [];
+    /** Each transcript's measurement, kept until it grows. */
+    private measured = new Map<string, { size: number; usage: SessionUsage | undefined }>();
+    /** What answered Greps would have printed, by their input. */
+    private grepChars = new Map<string, number | undefined>();
+    private usageTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor(
         private readonly scriptSource: string,
         private readonly onEvents: (events: AgentEvent[]) => void,
+        private readonly onUsage: (sessions: SessionUsage[]) => void,
     ) {}
 
     private root(): string | undefined {
@@ -93,6 +110,7 @@ export class AgentHub implements vscode.Disposable {
         if (!root || !this.lookupWanted()) {
             return;
         }
+        this.scanned = graph.nodes.filter((n) => n.kind === 'file').map((n) => path.join(root, n.file));
         const file = path.join(root, LOOKUP_FILE);
         const text = renderLookup(graph);
         if (readText(file) !== text) {
@@ -109,6 +127,82 @@ export class AgentHub implements vscode.Disposable {
         }
         const text = readText(this.logFile(root)) ?? '';
         return parseActivity(text).slice(-HISTORY_EVENTS).map((l) => this.toEvent(l));
+    }
+
+    /** The recorded Claude Code sessions' tokens, and Overseer's estimated savings, newest first. */
+    async usage(): Promise<SessionUsage[]> {
+        const root = this.root();
+        if (!root) {
+            return [];
+        }
+        const transcripts = new Map<string, string>();
+        for (const line of (readText(path.join(root, '.overseer', 'sessions.jsonl')) ?? '').split('\n')) {
+            try {
+                const s = JSON.parse(line) as { id?: unknown; transcript?: unknown };
+                if (typeof s.id === 'string' && typeof s.transcript === 'string') {
+                    transcripts.delete(s.id);
+                    transcripts.set(s.id, s.transcript);
+                }
+            } catch {
+                // a blank or torn line
+            }
+        }
+        const ws = this.workspace(root);
+        const out: SessionUsage[] = [];
+        for (const file of [...transcripts.values()].slice(-USAGE_SESSIONS).reverse()) {
+            const size = fileSize(file);
+            let m = this.measured.get(file);
+            if (!m || m.size !== size) {
+                const text = await fs.promises.readFile(file, 'utf8').catch(() => '');
+                m = { size, usage: text ? await measureSession(text, root, ws) : undefined };
+                this.measured.set(file, m);
+            }
+            if (m.usage) {
+                out.push(m.usage);
+            }
+        }
+        return out.sort((a, b) => b.end - a.end);
+    }
+
+    /** Measure again once the agent pauses, and send the result. */
+    private scheduleUsage(): void {
+        clearTimeout(this.usageTimer);
+        this.usageTimer = setTimeout(() => void this.usage().then(this.onUsage, () => {}), USAGE_DELAY_MS);
+    }
+
+    /** The workspace as the estimate sees it: files git doesn't ignore (or the last scan's), read as the Grep would have. */
+    private workspace(root: string): Workspace {
+        let files: Promise<{ path: string; text: string }[]> | undefined;
+        const list = async () => {
+            const tracked = await git(root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']).then(
+                (out) => out.split('\0').filter(Boolean).map((f) => path.join(root, f)),
+                () => this.scanned,
+            );
+            const read = await Promise.all(
+                tracked.map(async (f) => {
+                    try {
+                        const buf = await fs.promises.readFile(f);
+                        return buf.length > GREP_MAX_FILE_BYTES || buf.includes(0) ? undefined : { path: f, text: buf.toString('utf8') };
+                    } catch {
+                        return undefined;
+                    }
+                }),
+            );
+            return read.filter((f) => f !== undefined);
+        };
+        return {
+            grepChars: async (input, cwd) => {
+                const key = JSON.stringify([input, cwd]);
+                if (!this.grepChars.has(key)) {
+                    this.grepChars.set(key, grepOutputChars(await (files ??= list()), input, cwd));
+                }
+                return this.grepChars.get(key);
+            },
+            lineCount: async (file) => {
+                const text = await fs.promises.readFile(file, 'utf8').catch(() => undefined);
+                return text === undefined ? undefined : text.split('\n').length;
+            },
+        };
     }
 
     async connect(agent: AgentName): Promise<boolean> {
@@ -170,6 +264,7 @@ export class AgentHub implements vscode.Disposable {
 
     dispose(): void {
         this.watcher?.dispose();
+        clearTimeout(this.usageTimer);
     }
 
     /** Copy the hook script into .overseer/, which ignores itself in git. */
@@ -247,6 +342,9 @@ export class AgentHub implements vscode.Disposable {
                 if (lines.length) {
                     this.lastT = lines[lines.length - 1].t;
                     this.onEvents(lines.map((l) => this.toEvent(l)));
+                    if (lines.some((l) => l.agent === 'claude')) {
+                        this.scheduleUsage();
+                    }
                 }
             } finally {
                 await fd.close();

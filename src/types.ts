@@ -136,9 +136,32 @@ export interface AgentStatus {
     connected: Record<AgentName, boolean>;
 }
 
+/** One Claude Code session's tokens, and what Overseer is estimated to have saved it (src/agents/usage.ts). */
+export interface SessionUsage {
+    id: string;
+    /** Claude Code's title for the session, once it has one. */
+    title?: string;
+    /** Milliseconds since the epoch: the transcript's first and last lines. */
+    start: number;
+    end: number;
+    /** API requests, and the tokens they processed (input, cache writes and reads, output): exact, from the transcript. */
+    requests: number;
+    used: number;
+    /** Estimated tokens Overseer kept out of those requests, and those its own text added to them. */
+    saved: number;
+    spent: number;
+    /** Searches answered from the table (and not run again), answers the agent ran again anyway, ranged reads the table pointed to, and greps or reads of the table. */
+    answered: number;
+    repeated: number;
+    guidedReads: number;
+    tableLookups: number;
+}
+
 export type ToWebview =
     | { type: 'agentStatus'; status: AgentStatus }
     | { type: 'agentActivity'; events: AgentEvent[] }
+    /** Recorded sessions, newest first. */
+    | { type: 'agentUsage'; sessions: SessionUsage[] }
     | { type: 'loading'; message: string }
     | { type: 'graph'; data: GraphData; view: ViewInfo; seq?: number }
     | { type: 'error'; message: string; seq?: number }

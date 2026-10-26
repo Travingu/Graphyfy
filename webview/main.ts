@@ -486,6 +486,10 @@ window.addEventListener('message', (ev: MessageEvent<ToWebview>) => {
         case 'agentActivity':
             onAgentActivity(m.events);
             break;
+        case 'agentUsage':
+            agentFeed.setUsage(m.sessions);
+            agentFeed.render();
+            break;
     }
 });
 

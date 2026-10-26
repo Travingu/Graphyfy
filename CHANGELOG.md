@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Token use** in Details, for Claude Code: the tokens the latest session used (exact, from Claude Code's transcript), next to an estimate of what it would have used without Overseer, with how many searches the table answered and reads it narrowed. The hook notes each session's transcript in `.overseer/sessions.jsonl`.
+
 ## 0.3.0
 
 - Zoomed out, nodes are drawn as dots in their kind's color, and open into labels as you zoom in. Hover over a dot to see its name.

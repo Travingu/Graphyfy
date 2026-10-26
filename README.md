@@ -51,6 +51,8 @@ While an agent is connected, Overseer keeps a lookup table of your code in `.ove
 
 Agents still tend to fall back on searching the code themselves. Turn on `overseer.answerSearches` to stop that for Claude Code. When Claude greps the code for a plain name the table knows (`AgentHub`, `writeLookup`), the hook answers from the table instead: a few lines saying where the name is defined and what uses it, not every match in the code. If Claude runs the same search again within two minutes, it goes through, so text the table doesn't cover (strings, comments) is still one step away. Searches for regexes, text, single files or non-code files always go through. Cursor has no hook before a search, so this applies only to Claude Code.
 
+**Token use** in Details shows what the latest Claude Code session used, read from Claude Code's own transcript, next to an estimate of what it would have used without Overseer. The estimate adds back what each answered search would have printed (nothing if Claude ran it again anyway) and the rest of each file Claude read only part of after the table pointed it there. It takes off Overseer's own text: the session hint, lookups in the table, and its answers. Every request re-sends the conversation, so each difference counts once per later request, until the context is compacted. Characters are counted as tokens at four to one, and searches Claude runs through the shell instead of its Grep tool aren't seen. Cursor's token use isn't available to Overseer.
+
 The hook runs with Node.js, so `node` has to be on your PATH. Files an agent reaches through shell commands (`cat`, `sed`) don't show up, because hooks only see the agent's own file tools.
 
 ## What it understands
