@@ -9,7 +9,7 @@ import type { AgentHub } from './agentHub';
 import { switchBranch } from './git/git';
 import { nodeAt } from './graph/builder';
 import type { HistoryIndex } from './historyIndex';
-import type { AgentEvent, AgentName, FromWebview, GraphData, HistoryData, ToWebview, ViewInfo } from './types';
+import type { AgentEvent, AgentName, FromWebview, GraphData, HistoryData, SessionUsage, ToWebview, ViewInfo } from './types';
 import type { WorkspaceIndex } from './workspaceIndex';
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -102,6 +102,13 @@ export class GraphPanel {
     agentEvents(events: AgentEvent[]): void {
         if (this.panel && this.ready) {
             this.post({ type: 'agentActivity', events });
+        }
+    }
+
+    /** Claude Code's sessions were measured again. */
+    agentUsage(sessions: SessionUsage[]): void {
+        if (this.panel && this.ready) {
+            this.post({ type: 'agentUsage', sessions });
         }
     }
 
@@ -239,6 +246,7 @@ export class GraphPanel {
                 }
                 this.post({ type: 'agentStatus', status: this.agents.status() });
                 this.post({ type: 'agentActivity', events: this.agents.recent() });
+                void this.agents.usage().then((sessions) => this.agentUsage(sessions), () => {});
                 if (this.shown) {
                     this.post({ type: 'graph', data: this.shown, view: this.view });
                 } else if (this.index.graph) {

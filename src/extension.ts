@@ -17,7 +17,11 @@ import { CONFIG_GLOB, WorkspaceIndex } from './workspaceIndex';
 const AUTO_REFRESH_DELAY_MS = 800;
 
 export function activate(context: vscode.ExtensionContext): void {
-    const agents = new AgentHub(context.asAbsolutePath('out/agent-hook.js'), (events) => panel.agentEvents(events));
+    const agents = new AgentHub(
+        context.asAbsolutePath('out/agent-hook.js'),
+        (events) => panel.agentEvents(events),
+        (sessions) => panel.agentUsage(sessions),
+    );
     const index = new WorkspaceIndex(context.asAbsolutePath('out/parsers'), (graph) => agents.writeLookup(graph));
     const history = new HistoryIndex(context.asAbsolutePath('out/parsers'));
     const panel = new GraphPanel(context, index, history, agents);

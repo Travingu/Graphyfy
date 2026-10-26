@@ -2,7 +2,7 @@
   "name": "overseer",
   "displayName": "Overseer",
   "description": "See how a TypeScript or JavaScript codebase fits together: an interactive graph of folders, files, classes and functions, connected by imports, calls, JSX renders and inheritance. Step back through Git history to see what each commit changed.",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "publisher": "trav1snguyen",
   "author": "Travis Nguyen",
   "license": "MIT",
@@ -39,7 +39,7 @@
     "watch": "node scripts/build.js --watch",
     "typecheck": "tsc -p . && tsc -p webview",
     "harness": "node scripts/build.js && node test/harness.js",
-    "test": "node scripts/build.js && node --test test/builder.test.js test/git.test.js test/agents.test.js test/smoke.test.js",
+    "test": "node scripts/build.js && node --test test/builder.test.js test/git.test.js test/agents.test.js test/usage.test.js test/smoke.test.js",
     "vscode:prepublish": "node scripts/build.js --production",
     "package": "vsce package",
     "publish": "vsce publish"
