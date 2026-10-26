@@ -47,10 +47,13 @@ function answer(input: unknown): void {
     if (agent !== 'claude' || !dir) {
         return;
     }
-    recordSession(dir, input as { session_id?: unknown; transcript_path?: unknown } | undefined);
-    // Claude Code adds this to the session's context, once Overseer has written the table.
-    if (event === 'SessionStart' && fs.existsSync(path.join(dir, path.basename(LOOKUP_FILE)))) {
-        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: LOOKUP_HINT } }));
+    // Claude Code adds the hint to the session's context, once Overseer has written the table. A session
+    // already running when Overseer connected never fires SessionStart for it, so its first prompt gets it.
+    const hinting = event === 'SessionStart' || event === 'UserPromptSubmit';
+    const table = hinting && fs.existsSync(path.join(dir, path.basename(LOOKUP_FILE)));
+    const hinted = recordSession(dir, input as SessionInput | undefined, table ? event : undefined);
+    if (hinted) {
+        process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: LOOKUP_HINT } }));
     }
     if (event === 'PreToolUse' && i?.tool_name === 'Grep' && i.tool_input) {
         const reason = answerFromTable(dir, i.tool_input);
@@ -61,27 +64,51 @@ function answer(input: unknown): void {
     }
 }
 
-/** Note the session's transcript once, for the token estimate (usage.ts). Sessions started before connecting show up on their next tool call. */
-function recordSession(dir: string, input: { session_id?: unknown; transcript_path?: unknown } | undefined): void {
+interface SessionInput {
+    session_id?: unknown;
+    transcript_path?: unknown;
+}
+
+/**
+ * Note the session's transcript once, for the token estimate (usage.ts), and
+ * whether it has been given the hint. Sessions started before connecting show
+ * up on their next prompt or tool call. With `hintOn` (the event, when the
+ * table exists): whether to give the hint now. SessionStart always does, so it
+ * comes back after a compaction; a prompt only when the session never had it.
+ */
+function recordSession(dir: string, input: SessionInput | undefined, hintOn?: string): boolean {
     const id = input?.session_id;
     const transcript = input?.transcript_path;
     if (typeof id !== 'string' || typeof transcript !== 'string') {
-        return;
+        return hintOn === 'SessionStart';
     }
+    let known = false;
+    let hinted = false;
+    const file = path.join(dir, SESSIONS_FILE);
     try {
-        const file = path.join(dir, SESSIONS_FILE);
-        let known = '';
-        try {
-            known = fs.readFileSync(file, 'utf8');
-        } catch {
-            // none yet
-        }
-        if (!known.includes(JSON.stringify(id))) {
-            fs.appendFileSync(file, JSON.stringify({ t: Date.now(), id, transcript }) + '\n');
+        for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+            try {
+                const s = JSON.parse(line) as { id?: unknown; hinted?: unknown };
+                if (s.id === id) {
+                    known = true;
+                    hinted ||= s.hinted === true;
+                }
+            } catch {
+                // a blank or torn line
+            }
         }
     } catch {
-        // the estimate misses this session; the agent carries on regardless
+        // none yet
     }
+    const hint = hintOn === 'SessionStart' || (hintOn === 'UserPromptSubmit' && !hinted);
+    try {
+        if (!known || (hint && !hinted)) {
+            fs.appendFileSync(file, JSON.stringify({ t: Date.now(), id, transcript, ...(hint ? { hinted: true } : {}) }) + '\n');
+        }
+    } catch {
+        // the estimate misses this session, and a prompt may hint again; the agent carries on regardless
+    }
+    return hint;
 }
 
 /** The table's answer to a Grep, or undefined to let it run. */

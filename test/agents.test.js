@@ -46,6 +46,7 @@ test("Claude Code settings: Overseer's hook is added once and removed cleanly, l
     assert.equal(once.hooks.PreToolUse.length, 2);
     assert.match(once.hooks.PreToolUse[1].matcher, /^Read\|Edit\|.*Grep$/);
     assert.deepEqual(once.hooks.SessionStart, [{ hooks: [{ type: 'command', command: cmd }] }], 'and points the session to the lookup table');
+    assert.deepEqual(once.hooks.UserPromptSubmit, [{ hooks: [{ type: 'command', command: cmd }] }], 'or its first prompt, for a session already running');
     const back = removeClaudeHook(once);
     assert.deepEqual(back, mine);
     assert.ok(!hasClaudeHook(back));
@@ -83,6 +84,19 @@ test('the bundled hook logs each file and never gets in the way', () => {
         assert.equal(run('claude', start), '', 'no pointer before the lookup table exists');
         fs.writeFileSync(path.join(dir, 'lookup.md'), '# Code lookup table\n');
         assert.deepEqual(JSON.parse(run('claude', start)), { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: LOOKUP_HINT } });
+
+        // A session already running when Overseer connected gets the hint on its first prompt, once.
+        const prompt = (id) => JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: id, transcript_path: `/t/${id}.jsonl`, prompt: 'hi' });
+        const hint = { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: LOOKUP_HINT } };
+        assert.deepEqual(JSON.parse(run('claude', prompt('late'))), hint);
+        assert.equal(run('claude', prompt('late')), '', 'not again on the next prompt');
+        // One that started with the hint doesn't get it twice, but gets it back after a compaction.
+        const started = (source) => JSON.stringify({ hook_event_name: 'SessionStart', source, session_id: 'early', transcript_path: '/t/early.jsonl' });
+        assert.equal(JSON.parse(run('claude', started('startup'))).hookSpecificOutput.hookEventName, 'SessionStart');
+        assert.equal(run('claude', prompt('early')), '');
+        assert.equal(JSON.parse(run('claude', started('compact'))).hookSpecificOutput.additionalContext, LOOKUP_HINT);
+        const sessions = fs.readFileSync(path.join(dir, 'sessions.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+        assert.deepEqual(sessions.map((s) => `${s.id} ${s.hinted === true}`), ['late true', 'early true'], 'each session noted once, with its hint');
 
         // overseer.answerSearches: a Grep for a name in the table is answered from it, and goes through when repeated.
         fs.writeFileSync(path.join(dir, 'lookup.md'), '# Code lookup table\n\nsrc/a.ts:1-3  function load(id: string)\n');

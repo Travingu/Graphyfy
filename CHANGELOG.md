@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Token use** in Details, for Claude Code: the tokens the latest session used (exact, from Claude Code's transcript), next to an estimate of what it would have used without Overseer, with how many searches the table answered and reads it narrowed. The hook notes each session's transcript in `.overseer/sessions.jsonl`.
+- Fixed: a Claude Code session that was already running when Overseer connected (or restarted) never got the pointer to the lookup table, because it only came at session start. It now comes with the session's first prompt instead, once.
 
 ## 0.3.0
 

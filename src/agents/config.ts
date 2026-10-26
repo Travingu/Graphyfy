@@ -1,7 +1,7 @@
 // src/agents/config.ts
 // Adds Overseer's hook to, and removes it from, each agent's hook settings,
 // leaving everything else in them as it was:
-//   Claude Code: .claude/settings.local.json  { hooks: { PreToolUse: [{ matcher, hooks: [{ type, command }] }], SessionStart: [{ hooks: [...] }] } }
+//   Claude Code: .claude/settings.local.json  { hooks: { PreToolUse: [{ matcher, hooks: [{ type, command }] }], SessionStart: [{ hooks: [...] }], UserPromptSubmit: [...] } }
 //   Cursor:      .cursor/hooks.json           { version: 1, hooks: { beforeReadFile: [{ command }], afterFileEdit: [...] } }
 // Overseer's entries are the ones whose command runs `.overseer/hook.js`.
 // No vscode imports, so the tests use it directly.
@@ -33,8 +33,12 @@ const isOurs = (command: unknown) => typeof command === 'string' && command.repl
 
 // ---- Claude Code ------------------------------------------------------------------
 
-/** PreToolUse records each file; SessionStart points the agent to the lookup table (lookup.ts). */
-const CLAUDE_EVENTS = ['PreToolUse', 'SessionStart'];
+/**
+ * PreToolUse records each file; SessionStart points the agent to the lookup
+ * table (lookup.ts), and UserPromptSubmit does for a session already running
+ * when Overseer connected.
+ */
+const CLAUDE_EVENTS = ['PreToolUse', 'SessionStart', 'UserPromptSubmit'];
 
 export function hasClaudeHook(settings: Json): boolean {
     return CLAUDE_EVENTS.some((e) => groups(settings, e).some((g) => g.hooks?.some((h) => isOurs(h.command))));
@@ -44,7 +48,9 @@ export function addClaudeHook(settings: Json, command: string): Json {
     const out = removeClaudeHook(settings);
     const hooks = { ...((out.hooks as Json | undefined) ?? {}) };
     hooks.PreToolUse = [...groups(out, 'PreToolUse'), { matcher: CLAUDE_TOOLS.join('|'), hooks: [{ type: 'command', command }] }];
-    hooks.SessionStart = [...groups(out, 'SessionStart'), { hooks: [{ type: 'command', command }] }];
+    for (const e of ['SessionStart', 'UserPromptSubmit']) {
+        hooks[e] = [...groups(out, e), { hooks: [{ type: 'command', command }] }];
+    }
     return { ...out, hooks };
 }
 
