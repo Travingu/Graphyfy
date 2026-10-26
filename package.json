@@ -2,7 +2,7 @@
   "name": "overseer",
   "displayName": "Overseer",
   "description": "See how a TypeScript or JavaScript codebase fits together: an interactive graph of folders, files, classes and functions, connected by imports, calls, JSX renders and inheritance. Step back through Git history to see what each commit changed.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "trav1snguyen",
   "author": "Travis Nguyen",
   "license": "MIT",
